@@ -24,6 +24,9 @@ class SyncEngine(object):
         return self.stop_flag() or esc_pressed()
 
     def run(self, excel_path=None):
+        import pythoncom
+
+        pythoncom.CoInitialize()
         self.logger = DriveCheckLog(gui_callback=self.gui_log)
         log = self.logger
         cfg = load_config()
@@ -165,3 +168,10 @@ class SyncEngine(object):
                     pass
                 self.logger.finish(u"오류로 종료")
             raise
+        finally:
+            try:
+                import pythoncom
+
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass

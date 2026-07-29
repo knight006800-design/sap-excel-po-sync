@@ -69,7 +69,6 @@ def place_window_on_primary(win, width=720, height=520, margin=40):
     mon = primary_monitor()
     x = mon["left"] + margin
     y = mon["top"] + margin
-    # 화면 밖으로 나가지 않게
     max_w = max(200, mon["right"] - mon["left"] - margin * 2)
     max_h = max(200, mon["bottom"] - mon["top"] - margin * 2)
     width = min(width, max_w)
@@ -78,7 +77,7 @@ def place_window_on_primary(win, width=720, height=520, margin=40):
 
 
 def place_window_primary_corner(win, width=430, height=300, side=u"right"):
-    """주모니터 모서리에 작은 안내창 배치 (SAP 부모니터를 가리지 않음)."""
+    """주모니터 모서리에 작은 안내창 배치."""
     mon = primary_monitor()
     mw = mon["right"] - mon["left"]
     mh = mon["bottom"] - mon["top"]
@@ -90,3 +89,19 @@ def place_window_primary_corner(win, width=430, height=300, side=u"right"):
         x = mon["left"] + 16
     y = mon["top"] + 16
     win.geometry("{0}x{1}+{2}+{3}".format(width, height, x, y))
+
+
+def place_window_on_secondary(win, width=480, height=520, margin=16):
+    """보조 모니터가 있으면 그곳(안내창), 없으면 주모니터 모서리.
+    SAP는 주모니터에 두고 안내는 서브에 두는 용도.
+    """
+    secs = secondary_monitors()
+    if secs:
+        mon = secs[0]
+        w = min(width, max(200, mon["right"] - mon["left"] - margin * 2))
+        h = min(height, max(200, mon["bottom"] - mon["top"] - margin * 2))
+        x = mon["left"] + margin
+        y = mon["top"] + margin
+        win.geometry("{0}x{1}+{2}+{3}".format(w, h, x, y))
+    else:
+        place_window_primary_corner(win, width=width, height=height, side=u"right")

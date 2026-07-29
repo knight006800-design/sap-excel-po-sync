@@ -52,6 +52,7 @@ class ExcelWorkbook(object):
         self._ws = None
         self.rows = []
         self._shade_count = 0
+        self._com_inited = False
 
     def _log(self, msg):
         if self.logger:
@@ -64,9 +65,13 @@ class ExcelWorkbook(object):
     def open(self):
         if not os.path.isfile(self.path):
             raise IOError(u"엑셀 파일이 없습니다: {0}".format(self.path))
+        import pythoncom
         import win32com.client
 
-        # 이미 열려 있으면 같은 인스턴스 사용 (음영이 안 보이는 문제 방지)
+        # 백그라운드 스레드에서 COM 사용 시 필수
+        pythoncom.CoInitialize()
+        self._com_inited = True
+
         self._excel = None
         try:
             self._excel = win32com.client.GetActiveObject("Excel.Application")
@@ -76,7 +81,7 @@ class ExcelWorkbook(object):
             self._log(u"새 Excel 인스턴스 시작")
 
         self._excel.DisplayAlerts = False
-        self._excel.Visible = True  # 사용자가 음영을 바로 확인 가능
+        self._excel.Visible = True
 
         # 이미 열린 통합문서가 있으면 재사용
         self._wb = None
@@ -157,8 +162,14 @@ class ExcelWorkbook(object):
                 raise IOError(u"엑셀 저장 실패: {0} / {1}".format(e, e2))
 
     def close(self):
-        # Visible Excel은 사용자가 보고 있으므로 Quit하지 않음 (저장만 유지)
-        # 새로 연 경우에만 닫을지 애매하므로 워크북은 열어 둔다
         self._ws = None
         self._wb = None
         self._excel = None
+        if self._com_inited:
+            try:
+                import pythoncom
+
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+            self._com_inited = False

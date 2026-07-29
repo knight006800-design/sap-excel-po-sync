@@ -20,7 +20,7 @@ from PIL import Image, ImageTk
 from monitors import (
     enum_monitors,
     is_on_primary,
-    place_window_primary_corner,
+    place_window_on_secondary,
     primary_monitor,
     secondary_monitors,
 )
@@ -92,18 +92,16 @@ class CalibrateWizard(object):
         secs = secondary_monitors(self.monitors)
         prim = primary_monitor(self.monitors)
         msg = (
-            u"안내 그림은 주모니터에만 뜹니다.\n"
-            u"그림의 빨간 점 = 클릭할 위치입니다.\n\n"
-            u"★마우스 화살표의 「끝」★을 그 위치에 맞추고 클릭하세요.\n"
-            u"(노란 ＋표시는 없습니다. 마우스 끝만 보세요.)\n\n"
-            u"주모니터 클릭은 무시됩니다. 취소: ESC"
+            u"★ SAP는 주모니터에 두고 보정·실행합니다. ★\n\n"
+            u"그림의 빨간 점 = 클릭 위치\n"
+            u"마우스 화살표 「끝」을 맞추고 클릭하세요.\n"
+            u"안내창 위를 클릭하면 무시됩니다. 취소: ESC"
         )
         if secs:
             s = secs[0]
             msg = (
-                u"주모니터=안내 / 부모니터=SAP\n"
-                u"주: ({0},{1})-({2},{3})\n"
-                u"부: ({4},{5})-({6},{7})\n\n"
+                u"주모니터(SAP): ({0},{1})-({2},{3})\n"
+                u"서브(안내창): ({4},{5})-({6},{7})\n\n"
             ).format(
                 prim["left"],
                 prim["top"],
@@ -114,12 +112,15 @@ class CalibrateWizard(object):
                 s["right"],
                 s["bottom"],
             ) + msg
+        else:
+            msg = u"(모니터 1대) SAP와 안내가 같은 화면입니다.\n\n" + msg
         messagebox.showinfo(u"보정 시작", msg, parent=self.parent)
 
         self.win = tk.Toplevel(self.parent)
-        self.win.title(u"보정 안내 — 마우스 끝으로 빨간 점 위치 클릭")
+        self.win.title(u"보정 안내 — 주모니터 SAP에 마우스 끝으로 클릭")
         self.win.attributes("-topmost", True)
-        place_window_primary_corner(self.win, width=480, height=520, side=u"right")
+        # 안내는 서브모니터(있으면). SAP는 주모니터.
+        place_window_on_secondary(self.win, width=480, height=520)
         self.win.configure(bg="#fff8e1")
 
         self.title_lbl = tk.Label(
@@ -194,7 +195,7 @@ class CalibrateWizard(object):
         try:
             x, y = pyautogui.position()
             on_pri = is_on_primary(x, y, self.monitors)
-            where = u"주모니터(무시)" if on_pri else u"부모니터(OK)"
+            where = u"주모니터(SAP클릭OK)" if on_pri else u"서브모니터"
             self.coord.config(text=u"마우스 끝: ({0}, {1})  |  {2}".format(x, y, where))
         except Exception:
             pass
@@ -208,7 +209,21 @@ class CalibrateWizard(object):
 
         return bool(ctypes.windll.user32.GetAsyncKeyState(0x1B) & 0x8000)
 
+    def _click_on_guide(self, x, y):
+        """안내창 위 클릭은 보정으로 쓰지 않음."""
+        if not self.win:
+            return False
+        try:
+            gx = int(self.win.winfo_rootx())
+            gy = int(self.win.winfo_rooty())
+            gw = int(self.win.winfo_width())
+            gh = int(self.win.winfo_height())
+            return gx <= x < gx + gw and gy <= y < gy + gh
+        except Exception:
+            return False
+
     def _wait_click_on_sap(self):
+        """주모니터(SAP) 클릭만 기록. 안내창·서브모니터 클릭은 무시."""
         import ctypes
 
         VK_LBUTTON = 0x01
@@ -223,11 +238,22 @@ class CalibrateWizard(object):
                         return None
                     time.sleep(0.02)
                 x, y = pyautogui.position()
-                if has_secondary and is_on_primary(x, y, self.monitors):
+                if self._click_on_guide(x, y):
                     self.win.after(
                         0,
                         lambda: self.status.config(
-                            text=u"주모니터 클릭 무시 — SAP에서 클릭!",
+                            text=u"안내창 클릭은 무시 — 주모니터 SAP를 클릭!",
+                            fg="#c62828",
+                        ),
+                    )
+                    time.sleep(0.2)
+                    continue
+                # 듀얼일 때: SAP는 주모니터이므로 주모니터 클릭만 인정
+                if has_secondary and not is_on_primary(x, y, self.monitors):
+                    self.win.after(
+                        0,
+                        lambda: self.status.config(
+                            text=u"서브모니터 클릭 무시 — 주모니터 SAP를 클릭!",
                             fg="#c62828",
                         ),
                     )
@@ -251,7 +277,7 @@ class CalibrateWizard(object):
                     )
                     self._show_guide(g)
                     self.status.config(
-                        text=u"대기 중… 마우스 끝으로 빨간 점 위치를 클릭",
+                        text=u"대기 중… 주모니터 SAP에서 마우스 끝으로 클릭",
                         fg="#0d47a1",
                     )
 
