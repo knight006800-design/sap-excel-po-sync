@@ -44,16 +44,18 @@ class RowQtySettings(object):
         self.win = tk.Toplevel(self.parent)
         self.win.title(u"행/수량 초기설정")
         self.win.attributes("-topmost", True)
-        place_window_on_secondary(self.win, width=420, height=380, margin=24)
-        self.win.configure(bg="#fff8e1")
+        place_window_on_secondary(self.win, width=440, height=400, margin=24)
+        bg = "#F4F5F7"
+        self.win.configure(bg=bg)
 
         tk.Label(
             self.win,
             text=u"주모니터 SAP에서 클릭지정만 하세요.\n값은 자동으로 채워집니다. (숫자 직접 입력 없음)\n설정은 config.json에 저장·재사용됩니다.",
-            font=("Malgun Gothic", 10),
-            bg="#fff8e1",
+            font=("Segoe UI", 10),
+            bg=bg,
+            fg="#1A1D23",
             justify="left",
-        ).pack(anchor="w", padx=12, pady=10)
+        ).pack(anchor="w", padx=16, pady=14)
 
         self.var_first = tk.StringVar(value=str(sap.get("first_row_y", 240)))
         self.var_rh = tk.StringVar(value=str(sap.get("row_height", 28)))
@@ -63,40 +65,86 @@ class RowQtySettings(object):
         self._row(u"행 높이 (row_height)", self.var_rh, self._click_row_height)
         self._row(u"수량 칸 X (qty_center_x)", self.var_qty, self._click_qty_x)
 
-        bf = tk.Frame(self.win, bg="#fff8e1")
-        bf.pack(pady=14)
-        tk.Button(bf, text=u"저장", width=10, command=self._save, bg="#c8e6c9").pack(
-            side="left", padx=4
-        )
-        tk.Button(bf, text=u"재설정", width=10, command=self._reset).pack(
-            side="left", padx=4
-        )
-        tk.Button(bf, text=u"닫기", width=10, command=self._close).pack(
-            side="left", padx=4
-        )
+        bf = tk.Frame(self.win, bg=bg)
+        bf.pack(pady=16)
+        tk.Button(
+            bf,
+            text=u"저장",
+            width=10,
+            command=self._save,
+            bg="#2563EB",
+            fg="#FFFFFF",
+            activebackground="#1D4ED8",
+            activeforeground="#FFFFFF",
+            relief="flat",
+            font=("Segoe UI", 10, "bold"),
+            padx=8,
+            pady=6,
+        ).pack(side="left", padx=4)
+        tk.Button(
+            bf,
+            text=u"재설정",
+            width=10,
+            command=self._reset,
+            bg="#FFFFFF",
+            fg="#1A1D23",
+            relief="flat",
+            font=("Segoe UI", 10),
+            padx=8,
+            pady=6,
+        ).pack(side="left", padx=4)
+        tk.Button(
+            bf,
+            text=u"닫기",
+            width=10,
+            command=self._close,
+            bg="#FFFFFF",
+            fg="#1A1D23",
+            relief="flat",
+            font=("Segoe UI", 10),
+            padx=8,
+            pady=6,
+        ).pack(side="left", padx=4)
 
         self.status = tk.Label(
-            self.win, text=u"", fg="#1565c0", bg="#fff8e1", font=("Malgun Gothic", 9)
+            self.win, text=u"", fg="#1E3A8A", bg=bg, font=("Segoe UI", 9)
         )
         self.status.pack(pady=4)
         self.win.protocol("WM_DELETE_WINDOW", self._close)
 
     def _row(self, label, var, click_cmd):
-        f = tk.Frame(self.win, bg="#fff8e1")
-        f.pack(fill="x", padx=12, pady=4)
-        tk.Label(f, text=label, width=22, anchor="w", bg="#fff8e1").pack(side="left")
-        # 사용자가 좌표를 타이핑하지 않도록 값은 라벨로만 표시합니다.
+        bg = "#F4F5F7"
+        f = tk.Frame(self.win, bg=bg)
+        f.pack(fill="x", padx=16, pady=6)
+        tk.Label(
+            f, text=label, width=22, anchor="w", bg=bg, fg="#1A1D23", font=("Segoe UI", 10)
+        ).pack(side="left")
         tk.Label(
             f,
             textvariable=var,
             width=10,
             anchor="w",
-            bg="#fff8e1",
-            fg="#111",
-            relief="sunken",
-            padx=4,
-        ).pack(side="left", padx=4)
-        tk.Button(f, text=u"클릭지정", command=click_cmd, width=8).pack(side="left")
+            bg="#FFFFFF",
+            fg="#1A1D23",
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground="#E2E4E8",
+            padx=8,
+            pady=4,
+            font=("Segoe UI", 10),
+        ).pack(side="left", padx=6)
+        tk.Button(
+            f,
+            text=u"클릭지정",
+            command=click_cmd,
+            width=10,
+            bg="#FFFFFF",
+            fg="#2563EB",
+            relief="flat",
+            font=("Segoe UI", 9, "bold"),
+            padx=6,
+            pady=4,
+        ).pack(side="left")
 
     def _esc(self):
         import ctypes

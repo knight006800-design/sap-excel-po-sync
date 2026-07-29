@@ -41,17 +41,23 @@ def normalize_code(value):
     return text
 
 
-def parse_pasted_sap_codes(text):
-    """Ctrl+V 붙여넣기 텍스트 → 코드 목록 (SAP 화면 위→아래 순서)."""
+def _paste_lines(text):
     if not text:
         return []
-    codes = []
-    seen = set()
+    out = []
     for line in str(text).replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        # 탭/여러 칸이면 첫 토큰 우선, 없으면 코드처럼 보이는 토큰
+        out.append(line)
+    return out
+
+
+def parse_pasted_sap_codes(text):
+    """Ctrl+V 붙여넣기 텍스트 → 코드 목록 (SAP 화면 위→아래 순서, 중복 제거)."""
+    codes = []
+    seen = set()
+    for line in _paste_lines(text):
         parts = re.split(r"[\t;|]+", line)
         candidate = u""
         for p in parts:
@@ -68,6 +74,22 @@ def parse_pasted_sap_codes(text):
         seen.add(candidate)
         codes.append(candidate)
     return codes
+
+
+def parse_pasted_sap_qtys(text):
+    """Ctrl+V 붙여넣기 텍스트 → 수량 목록 (코드와 같은 행 순서, 중복 허용)."""
+    qtys = []
+    for line in _paste_lines(text):
+        parts = re.split(r"[\t;|]+", line)
+        q = None
+        for p in parts:
+            q = normalize_qty(p)
+            if q is not None:
+                break
+        if q is None:
+            q = normalize_qty(line)
+        qtys.append(q)
+    return qtys
 
 
 class ExcelWorkbook(object):

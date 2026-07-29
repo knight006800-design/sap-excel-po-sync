@@ -1,12 +1,26 @@
 # -*- coding: utf-8 -*-
-"""붙여넣기 SAP 코드 ↔ 엑셀 매칭 후 수량 동기화."""
+"""붙여넣기 SAP 코드·수량 ↔ 엑셀 비교 후 수량 동기화."""
 from __future__ import print_function
 
 import time
 
-from excel_io import ExcelWorkbook, normalize_code, parse_pasted_sap_codes
+from excel_io import (
+    ExcelWorkbook,
+    normalize_code,
+    parse_pasted_sap_codes,
+    parse_pasted_sap_qtys,
+)
 from sap_input import click_and_type_qty, esc_pressed
 from settings_ui import sap_config_ready
+
+
+def _qty_equal(a, b):
+    if a is None or b is None:
+        return False
+    try:
+        return abs(float(a) - float(b)) < 1e-9
+    except Exception:
+        return str(a).strip() == str(b).strip()
 
 
 class SyncEngine(object):
@@ -25,27 +39,41 @@ class SyncEngine(object):
                 return False
         return False
 
-    def run(self, excel_path, pasted_text):
+    def run(self, excel_path, codes_text, qtys_text):
         if not sap_config_ready(self.config):
             raise RuntimeError(
                 u"SAP 행/수량 위치가 없습니다. '행/수량 초기설정'에서 클릭지정 후 저장하세요."
             )
 
         sap = self.config.get("sap") or {}
-        sap_codes = parse_pasted_sap_codes(pasted_text)
+        sap_codes = parse_pasted_sap_codes(codes_text)
+        sap_qtys = parse_pasted_sap_qtys(qtys_text)
+
         if not sap_codes:
             raise RuntimeError(
-                u"붙여넣은 SAP 코드가 없습니다. SAP에서 자재번호를 복사한 뒤 "
-                u"아래 칸에 Ctrl+V 하세요."
+                u"붙여넣은 SAP 코드가 없습니다. SAP 자재번호 열을 복사해 코드 칸에 Ctrl+V 하세요."
+            )
+        if not sap_qtys:
+            raise RuntimeError(
+                u"붙여넣은 SAP 수량이 없습니다. SAP 오더수량 열을 복사해 수량 칸에 Ctrl+V 하세요."
             )
 
-        self.logger.info(u"붙여넣기 SAP 코드 {0}개".format(len(sap_codes)))
-        for i, c in enumerate(sap_codes[:30]):
-            self.logger.info(u"  SAP[{0}] {1}".format(i + 1, c))
-        if len(sap_codes) > 30:
-            self.logger.info(u"  ... 외 {0}개".format(len(sap_codes) - 30))
+        if len(sap_qtys) != len(sap_codes):
+            self.logger.warn(
+                u"코드 {0}개 / 수량 {1}개 — 행 수가 다릅니다. 앞쪽부터 맞춰 비교합니다.".format(
+                    len(sap_codes), len(sap_qtys)
+                )
+            )
 
-        # 코드 → SAP 행 인덱스(0부터, 화면 위→아래 = 붙여넣기 순서)
+        self.logger.info(
+            u"SAP 붙여넣기: 코드 {0}개, 수량 {1}개".format(len(sap_codes), len(sap_qtys))
+        )
+        for i, c in enumerate(sap_codes[:25]):
+            q = sap_qtys[i] if i < len(sap_qtys) else None
+            self.logger.info(u"  SAP[{0}] {1} / 수량={2}".format(i + 1, c, q))
+        if len(sap_codes) > 25:
+            self.logger.info(u"  ... 외 {0}개".format(len(sap_codes) - 25))
+
         sap_index = {}
         for i, code in enumerate(sap_codes):
             if code not in sap_index:
@@ -68,7 +96,9 @@ class SyncEngine(object):
                     unmatched.append(er)
 
             self.logger.info(
-                u"매칭 {0}건 / 미매칭(이동) {1}건".format(len(matched), len(unmatched))
+                u"비교 결과: 매칭 {0}건 / 미매칭(엑셀추출) {1}건".format(
+                    len(matched), len(unmatched)
+                )
             )
 
             qty_x = int(sap["qty_center_x"])
@@ -77,6 +107,7 @@ class SyncEngine(object):
             delay_between = float(self.config.get("delay_between_rows", 0.15))
 
             updated = 0
+            same = 0
             skipped = 0
             failed = 0
 
@@ -91,10 +122,18 @@ class SyncEngine(object):
                     skipped += 1
                     continue
 
+                sap_q = sap_qtys[sap_i] if sap_i < len(sap_qtys) else None
+                if _qty_equal(er["qty"], sap_q):
+                    self.logger.info(
+                        u"수량동일 스킵: {0} (= {1})".format(er["code_display"], er["qty"])
+                    )
+                    same += 1
+                    continue
+
                 y = int(first_y + sap_i * row_h)
                 self.logger.info(
-                    u"수량입력 {0} → {1} (SAP행{2}, 클릭 y={3})".format(
-                        er["code_display"], er["qty"], sap_i + 1, y
+                    u"수량수정 {0}: SAP {1} → 엑셀 {2} (행{3}, y={4})".format(
+                        er["code_display"], sap_q, er["qty"], sap_i + 1, y
                     )
                 )
                 try:
@@ -113,7 +152,7 @@ class SyncEngine(object):
 
             moved_path = None
             if unmatched and not self._stopped():
-                self.logger.info(u"미매칭 행을 새 엑셀로 이동 중...")
+                self.logger.info(u"미매칭 행을 새 엑셀로 자동 추출 중...")
                 moved_path = book.move_unmatched_rows(unmatched)
                 book.save()
             elif updated:
@@ -125,13 +164,16 @@ class SyncEngine(object):
                 "matched": len(matched),
                 "unmatched": len(unmatched),
                 "updated": updated,
+                "same": same,
                 "skipped": skipped,
                 "failed": failed,
                 "moved_path": moved_path or u"",
             }
             self.logger.info(
-                u"완료: 매칭={matched}, 수량수정={updated}, 미매칭이동={unmatched}, "
-                u"스킵={skipped}, 실패={failed}".format(**summary)
+                u"완료: 매칭={matched}, 수정={updated}, 동일스킵={same}, "
+                u"미매칭추출={unmatched}, 스킵={skipped}, 실패={failed}".format(
+                    **summary
+                )
             )
             if moved_path:
                 self.logger.info(u"미매칭 파일: {0}".format(moved_path))
