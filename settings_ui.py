@@ -49,7 +49,7 @@ class RowQtySettings(object):
 
         tk.Label(
             self.win,
-            text=u"주모니터 SAP에서 클릭하거나 숫자를 직접 입력하세요.\n설정은 config.json에 저장·재사용됩니다.",
+            text=u"주모니터 SAP에서 클릭지정만 하세요.\n값은 자동으로 채워집니다. (숫자 직접 입력 없음)\n설정은 config.json에 저장·재사용됩니다.",
             font=("Malgun Gothic", 10),
             bg="#fff8e1",
             justify="left",
@@ -85,7 +85,17 @@ class RowQtySettings(object):
         f = tk.Frame(self.win, bg="#fff8e1")
         f.pack(fill="x", padx=12, pady=4)
         tk.Label(f, text=label, width=22, anchor="w", bg="#fff8e1").pack(side="left")
-        tk.Entry(f, textvariable=var, width=10).pack(side="left", padx=4)
+        # 사용자가 좌표를 타이핑하지 않도록 값은 라벨로만 표시합니다.
+        tk.Label(
+            f,
+            textvariable=var,
+            width=10,
+            anchor="w",
+            bg="#fff8e1",
+            fg="#111",
+            relief="sunken",
+            padx=4,
+        ).pack(side="left", padx=4)
         tk.Button(f, text=u"클릭지정", command=click_cmd, width=8).pack(side="left")
 
     def _esc(self):
