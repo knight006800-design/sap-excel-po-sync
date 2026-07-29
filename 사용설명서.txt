@@ -1,0 +1,38 @@
+# SAP–엑셀 구매오더 수량 동기화 RPA
+# ==================================
+# 엑셀 B열 자재코드 ↔ SAP 자재코드 매칭
+# 엑셀 D열 수량 → SAP 오더수량 칸에 마우스/키보드로 입력
+# SAP에 없는 코드 → 엑셀 B열 음영
+# 수량 일치 → 엑셀 D열 노란색 음영
+#
+# 원격 디버깅 로그: 구동점검.txt
+
+## 다른 PC에서 사용 순서
+
+1. 이 저장소를 clone 하거나 zip 다운로드 후 압축 해제
+2. (개발 PC) Python 설치 후:
+   ```
+   pip install -r requirements.txt
+   python main.py
+   ```
+3. 또는 `build_exe.bat` 로 exe 만든 뒤 배포
+4. **Tesseract OCR** 설치 필요
+   - https://github.com/UB-Mannheim/tesseract/wiki
+   - 설치 경로 예: `C:\Program Files\Tesseract-OCR\tesseract.exe`
+   - 또는 프로그램 폴더에 `tesseract\tesseract.exe` 배치
+5. Excel(MS Office) 설치 필요 (.xls 음영 저장용)
+6. SAP「구매오더 생성」을 **좌측 모니터 1920x1080** 에 자재코드가 전부 보이게 배치
+7. 프로그램 실행 → **엑셀 파일 연결** → **SAP 화면 보정** → **동기화 실행**
+8. 문제 발생 시 `구동점검.txt` 와 `구동점검_캡처_*.png` 를 전달
+
+## 보정 순서
+
+1. 자재코드 열 왼쪽 위
+2. 자재코드 열 오른쪽 아래
+3. 오더수량 열 중앙
+4. 첫 데이터 행 중앙
+5. 둘째 데이터 행 중앙
+
+## 긴급 중지
+
+ESC 키 또는 프로그램의 [중지] 버튼

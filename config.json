@@ -1,0 +1,18 @@
+{
+  "excel_path": "",
+  "delay_after_click": 0.25,
+  "delay_after_type": 0.35,
+  "delay_between_rows": 0.15,
+  "ocr_scale": 2.5,
+  "tesseract_cmd": "",
+  "sap": {
+    "material_left": 280,
+    "material_top": 220,
+    "material_right": 480,
+    "material_bottom": 980,
+    "qty_center_x": 1180,
+    "first_row_y": 240,
+    "row_height": 28,
+    "visible_rows": 25
+  }
+}

@@ -1,0 +1,6 @@
+pyautogui>=0.9.53
+Pillow>=9.0.0
+numpy>=1.19.0
+pytesseract>=0.3.10
+pywin32>=305
+pyinstaller>=5.13.0

@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+dist/
+build/
+배포/
+*.spec
+구동점검.txt
+구동점검_이전_*.txt
+구동점검_캡처_*.png
+.idea/
+.vscode/
+*.log
