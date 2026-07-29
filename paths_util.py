@@ -1,0 +1,91 @@
+# -*- coding: utf-8 -*-
+"""경로·설정 공통 유틸."""
+from __future__ import print_function
+
+import json
+import os
+import sys
+
+APP_NAME = u"웅이전용"
+
+
+def app_dir():
+    """exe 또는 스크립트 기준 실행 폴더."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def resource_dir():
+    """가이드 이미지 등 번들 리소스 폴더 (exe 빌드 시 _MEIPASS)."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return sys._MEIPASS
+    return app_dir()
+
+
+def guide_images_dir():
+    """우선 실행폴더/guide_images, 없으면 번들 리소스."""
+    local = os.path.join(app_dir(), "guide_images")
+    if os.path.isdir(local):
+        return local
+    bundled = os.path.join(resource_dir(), "guide_images")
+    return bundled
+
+
+def drive_check_dir():
+    """구동점검 전용 폴더 — 로그/캡처를 여기에 모음."""
+    path = os.path.join(app_dir(), u"구동점검")
+    try:
+        if not os.path.isdir(path):
+            os.makedirs(path)
+    except Exception:
+        pass
+    return path
+
+
+def config_path():
+    return os.path.join(app_dir(), "config.json")
+
+
+def default_config():
+    return {
+        "excel_path": "",
+        "delay_after_click": 0.25,
+        "delay_after_type": 0.35,
+        "delay_between_rows": 0.15,
+        "ocr_scale": 2.5,
+        "tesseract_cmd": "",
+        "sap": {
+            "material_left": 280,
+            "material_top": 220,
+            "material_right": 480,
+            "material_bottom": 980,
+            "qty_center_x": 1180,
+            "first_row_y": 240,
+            "row_height": 28,
+            "visible_rows": 25,
+        },
+    }
+
+
+def load_config():
+    path = config_path()
+    cfg = default_config()
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            cfg.update(data)
+            if "sap" in data and isinstance(data["sap"], dict):
+                sap = default_config()["sap"]
+                sap.update(data["sap"])
+                cfg["sap"] = sap
+        except Exception:
+            pass
+    return cfg
+
+
+def save_config(cfg):
+    path = config_path()
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
