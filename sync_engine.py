@@ -1,181 +1,140 @@
 # -*- coding: utf-8 -*-
-"""구매오더 수량 동기화 — 메인 실행 엔진."""
+"""붙여넣기 SAP 코드 ↔ 엑셀 매칭 후 수량 동기화."""
 from __future__ import print_function
 
-import platform
 import time
 
-import pyautogui
-
-from drive_check import DriveCheckLog
-from excel_io import ExcelWorkbook, normalize_qty
-from paths_util import load_config
+from excel_io import ExcelWorkbook, normalize_code, parse_pasted_sap_codes
 from sap_input import click_and_type_qty, esc_pressed
-from sap_vision import SapScreenReader
+from settings_ui import sap_config_ready
 
 
 class SyncEngine(object):
-    def __init__(self, gui_log=None, stop_flag=None):
-        self.gui_log = gui_log
-        self.stop_flag = stop_flag or (lambda: False)
-        self.logger = None
+    def __init__(self, config, logger, stop_flag=None):
+        self.config = config
+        self.logger = logger
+        self.stop_flag = stop_flag
 
     def _stopped(self):
-        return self.stop_flag() or esc_pressed()
-
-    def run(self, excel_path=None):
-        import pythoncom
-
-        pythoncom.CoInitialize()
-        self.logger = DriveCheckLog(gui_callback=self.gui_log)
-        log = self.logger
-        cfg = load_config()
-        if excel_path:
-            cfg["excel_path"] = excel_path
-
-        try:
-            log.step(u"환경정보")
-            log.info(u"OS: {0}".format(platform.platform()))
+        if esc_pressed():
+            return True
+        if self.stop_flag is not None:
             try:
-                size = pyautogui.size()
-                log.info(u"화면크기: {0}x{1}".format(size[0], size[1]))
-            except Exception as e:
-                log.warn(u"화면크기 확인 실패: {0}".format(e))
-            log.info(u"엑셀경로: {0}".format(cfg.get("excel_path")))
-            log.info(u"SAP설정: {0}".format(cfg.get("sap")))
-
-            path = cfg.get("excel_path") or ""
-            if not path:
-                raise ValueError(u"엑셀 파일이 연결되지 않았습니다.")
-
-            log.step(u"엑셀로드")
-            wb = ExcelWorkbook(path, logger=log)
-            wb.open()
-            rows = wb.load_rows()
-            if not rows:
-                raise ValueError(u"엑셀에 자재코드(B열) 데이터가 없습니다.")
-
-            if self._stopped():
-                log.warn(u"사용자 중지")
-                wb.close()
-                log.finish(u"중지됨")
-                return
-
-            log.step(u"SAP화면OCR")
-            for sec in (3, 2, 1):
-                log.info(u"{0}초 후 SAP 화면 캡처… (ESC=중지)".format(sec))
-                time.sleep(1)
-                if self._stopped():
-                    log.warn(u"사용자 중지")
-                    wb.close()
-                    log.finish(u"중지됨")
-                    return
-
-            reader = SapScreenReader(cfg, logger=log)
-            try:
-                reader.scan()
-            except Exception as e:
-                wb.close()
-                raise
-
-            if not reader.rows:
-                wb.close()
-                raise RuntimeError(
-                    u"SAP OCR 인식 행 수 0 — 보정/화면을 확인하세요. "
-                    u"(전부 미존재로 처리하지 않고 중단합니다)"
-                )
-
-            stats = {"match": 0, "updated": 0, "missing": 0, "skip": 0, "error": 0}
-            log.step(
-                u"행처리시작",
-                u"엑셀 {0}행 / SAP인식 {1}행".format(len(rows), len(reader.rows)),
-            )
-            log.info(
-                u"SAP인식코드: {0}".format(
-                    u", ".join([r["code"] for r in reader.rows[:20]])
-                )
-            )
-
-            for item in rows:
-                if self._stopped():
-                    log.warn(u"사용자 중지 (처리 중)")
-                    break
-
-                code = item["code"]
-                excel_qty = item["qty"]
-                excel_row = item["row"]
-                sap = reader.find(code)
-
-                if sap is None:
-                    wb.shade_missing(excel_row)
-                    stats["missing"] += 1
-                    log.info(
-                        u"미존재 → B열노란색: {0} (엑셀행{1}) | SAP인식목록=[{2}]".format(
-                            code,
-                            excel_row,
-                            u", ".join([r["code"] for r in reader.rows]),
-                        )
-                    )
-                    continue
-
-                sap_qty = sap.get("qty")
-                eq = normalize_qty(excel_qty)
-                sq = normalize_qty(sap_qty)
-
-                if eq is not None and sq is not None and eq == sq:
-                    wb.shade_qty_match(excel_row)
-                    stats["match"] += 1
-                    log.info(
-                        u"수량일치 → D열노란색: {0} excel={1} sap={2}".format(
-                            code, eq, sq
-                        )
-                    )
-                    continue
-
-                if eq is None:
-                    stats["skip"] += 1
-                    log.warn(u"엑셀 수량 없음 스킵: {0}".format(code))
-                    continue
-
-                try:
-                    click_and_type_qty(sap["qty_x"], sap["qty_y"], eq, cfg, logger=log)
-                    stats["updated"] += 1
-                    log.info(
-                        u"수량수정: {0} sap={1} → excel={2} @({3},{4})".format(
-                            code, sq, eq, sap["qty_x"], sap["qty_y"]
-                        )
-                    )
-                    time.sleep(float(cfg.get("delay_between_rows", 0.15)))
-                except Exception as e:
-                    stats["error"] += 1
-                    log.error(u"입력 실패 {0}: {1}".format(code, e))
-                    log.exception(u"입력")
-
-            log.step(u"엑셀저장")
-            wb.save()
-            wb.close()
-
-            summary = (
-                u"일치={match} 수정={updated} 미존재={missing} 스킵={skip} 오류={error}".format(
-                    **stats
-                )
-            )
-            log.finish(summary)
-            return stats
-        except Exception:
-            if self.logger:
-                self.logger.exception(u"실행전체")
-                try:
-                    shot = pyautogui.screenshot()
-                    self.logger.save_screenshot(shot, u"치명오류")
-                except Exception:
-                    pass
-                self.logger.finish(u"오류로 종료")
-            raise
-        finally:
-            try:
-                import pythoncom
-
-                pythoncom.CoUninitialize()
+                return bool(self.stop_flag())
             except Exception:
-                pass
+                return False
+        return False
+
+    def run(self, excel_path, pasted_text):
+        if not sap_config_ready(self.config):
+            raise RuntimeError(
+                u"SAP 행/수량 위치가 없습니다. '행/수량 초기설정'에서 클릭지정 후 저장하세요."
+            )
+
+        sap = self.config.get("sap") or {}
+        sap_codes = parse_pasted_sap_codes(pasted_text)
+        if not sap_codes:
+            raise RuntimeError(
+                u"붙여넣은 SAP 코드가 없습니다. SAP에서 자재번호를 복사한 뒤 "
+                u"아래 칸에 Ctrl+V 하세요."
+            )
+
+        self.logger.info(u"붙여넣기 SAP 코드 {0}개".format(len(sap_codes)))
+        for i, c in enumerate(sap_codes[:30]):
+            self.logger.info(u"  SAP[{0}] {1}".format(i + 1, c))
+        if len(sap_codes) > 30:
+            self.logger.info(u"  ... 외 {0}개".format(len(sap_codes) - 30))
+
+        # 코드 → SAP 행 인덱스(0부터, 화면 위→아래 = 붙여넣기 순서)
+        sap_index = {}
+        for i, code in enumerate(sap_codes):
+            if code not in sap_index:
+                sap_index[code] = i
+
+        book = ExcelWorkbook(excel_path, logger=self.logger)
+        book.open()
+        try:
+            excel_rows = book.load_rows()
+            if not excel_rows:
+                raise RuntimeError(u"엑셀에 자재코드(B열) 데이터가 없습니다.")
+
+            matched = []
+            unmatched = []
+            for er in excel_rows:
+                code = normalize_code(er["code"])
+                if code in sap_index:
+                    matched.append((er, sap_index[code]))
+                else:
+                    unmatched.append(er)
+
+            self.logger.info(
+                u"매칭 {0}건 / 미매칭(이동) {1}건".format(len(matched), len(unmatched))
+            )
+
+            qty_x = int(sap["qty_center_x"])
+            first_y = int(sap["first_row_y"])
+            row_h = max(8, int(sap["row_height"]))
+            delay_between = float(self.config.get("delay_between_rows", 0.15))
+
+            updated = 0
+            skipped = 0
+            failed = 0
+
+            for er, sap_i in matched:
+                if self._stopped():
+                    self.logger.warn(u"사용자 중지")
+                    break
+                if er["qty"] is None:
+                    self.logger.warn(
+                        u"엑셀 수량 없음 → 스킵: {0}".format(er["code_display"])
+                    )
+                    skipped += 1
+                    continue
+
+                y = int(first_y + sap_i * row_h)
+                self.logger.info(
+                    u"수량입력 {0} → {1} (SAP행{2}, 클릭 y={3})".format(
+                        er["code_display"], er["qty"], sap_i + 1, y
+                    )
+                )
+                try:
+                    ok = click_and_type_qty(
+                        qty_x, y, er["qty"], self.config, logger=self.logger
+                    )
+                except Exception as e:
+                    ok = False
+                    self.logger.warn(u"입력 예외: {0}".format(e))
+                if ok:
+                    updated += 1
+                else:
+                    failed += 1
+                    self.logger.warn(u"입력 실패: {0}".format(er["code_display"]))
+                time.sleep(delay_between)
+
+            moved_path = None
+            if unmatched and not self._stopped():
+                self.logger.info(u"미매칭 행을 새 엑셀로 이동 중...")
+                moved_path = book.move_unmatched_rows(unmatched)
+                book.save()
+            elif updated:
+                book.save()
+
+            summary = {
+                "sap_codes": len(sap_codes),
+                "excel_rows": len(excel_rows),
+                "matched": len(matched),
+                "unmatched": len(unmatched),
+                "updated": updated,
+                "skipped": skipped,
+                "failed": failed,
+                "moved_path": moved_path or u"",
+            }
+            self.logger.info(
+                u"완료: 매칭={matched}, 수량수정={updated}, 미매칭이동={unmatched}, "
+                u"스킵={skipped}, 실패={failed}".format(**summary)
+            )
+            if moved_path:
+                self.logger.info(u"미매칭 파일: {0}".format(moved_path))
+            return summary
+        finally:
+            book.close()

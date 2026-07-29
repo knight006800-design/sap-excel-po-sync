@@ -1,18 +1,13 @@
 # -*- coding: utf-8 -*-
-"""엑셀 .xls / .xlsx 읽기 및 B·D열 노란색 음영 (Excel COM)."""
+"""엑셀 .xls / .xlsx 읽기·미매칭 행 이동 (Excel COM)."""
 from __future__ import print_function
 
 import os
 import re
-
-# Excel Interior.Color = BGR. 노랑 = RGB(255,255,0) → 0x0000FFFF
-COLOR_YELLOW = 0x00FFFF
-# ColorIndex 6 = 표준 노랑 (xls에서 더 안정적)
-XL_YELLOW = 6
+from datetime import datetime
 
 
 def normalize_qty(value):
-    """수량 정규화. OCR 잡음('0 100.11', '0 30011')도 처리."""
     if value is None:
         return None
     if isinstance(value, (int, float)):
@@ -25,66 +20,54 @@ def normalize_qty(value):
     text = str(value).strip()
     if not text or text in (u"-", u"."):
         return None
-    # 여러 조각이면 각각 후보로
-    parts = re.split(r"[\s]+", text.replace(",", ""))
-    candidates = []
-    for part in parts:
-        cleaned = re.sub(r"[^\d.\-]", "", part)
-        if not cleaned or cleaned in (".", "-", "-."):
-            continue
-        try:
-            num = float(cleaned)
-            # 말이 안 되는 과도한 소수/길이 제외 전 일단 후보
-            if num < 0:
-                continue
-            candidates.append(num)
-        except Exception:
-            continue
-    if not candidates:
+    text = text.replace(",", "").replace(" ", "")
+    text = re.sub(r"[^\d.\-]", "", text)
+    if not text or text in (".", "-", "-."):
         return None
-
-    def score(n):
-        # 정수 선호, 앞에 붙은 0 잡음은 강하게 배제
-        is_int = abs(n - round(n)) < 1e-6
-        s = 0
-        if is_int:
-            s += 5
-            n_i = int(round(n))
-            digits = len(str(abs(n_i)))
-            if n_i == 0:
-                s -= 20
-            elif 1 <= digits <= 6:
-                s += 3
-            if 10 <= n_i <= 999999:
-                s += 5
-        else:
-            # 100.11 같은 소수는 정수부만 다시 고려하도록 낮은 점수
-            s -= 3
-            n_i = int(n)
-            if 10 <= n_i <= 999999:
-                s += 1
-        return s
-
-    best = max(candidates, key=score)
-    # 소수면 정수부 후보가 더 나을 수 있음
-    if abs(best - round(best)) > 1e-6:
-        as_int = int(best)
-        if as_int >= 10 and score(float(as_int)) >= score(best):
-            return as_int
-    if abs(best - round(best)) < 1e-6:
-        return int(round(best))
-    return best
+    try:
+        num = float(text)
+        if num == int(num):
+            return int(num)
+        return num
+    except Exception:
+        return None
 
 
 def normalize_code(value):
     if value is None:
         return u""
     text = str(value).strip().upper()
-    # OCR: $ 를 8 로 자주 오인
-    text = text.replace(u"$", u"8").replace(u"§", u"8")
-    # 영문·숫자·하이픈만 유지
     text = re.sub(r"[^A-Z0-9\-]", "", text)
     return text
+
+
+def parse_pasted_sap_codes(text):
+    """Ctrl+V 붙여넣기 텍스트 → 코드 목록 (SAP 화면 위→아래 순서)."""
+    if not text:
+        return []
+    codes = []
+    seen = set()
+    for line in str(text).replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # 탭/여러 칸이면 첫 토큰 우선, 없으면 코드처럼 보이는 토큰
+        parts = re.split(r"[\t;|]+", line)
+        candidate = u""
+        for p in parts:
+            c = normalize_code(p)
+            if c and len(c) >= 4:
+                candidate = c
+                break
+        if not candidate:
+            candidate = normalize_code(line)
+        if not candidate or len(candidate) < 4:
+            continue
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        codes.append(candidate)
+    return codes
 
 
 class ExcelWorkbook(object):
@@ -95,8 +78,8 @@ class ExcelWorkbook(object):
         self._wb = None
         self._ws = None
         self.rows = []
-        self._shade_count = 0
         self._com_inited = False
+        self._max_col = 1
 
     def _log(self, msg):
         if self.logger:
@@ -112,7 +95,6 @@ class ExcelWorkbook(object):
         import pythoncom
         import win32com.client
 
-        # 백그라운드 스레드에서 COM 사용 시 필수
         pythoncom.CoInitialize()
         self._com_inited = True
 
@@ -127,7 +109,6 @@ class ExcelWorkbook(object):
         self._excel.DisplayAlerts = False
         self._excel.Visible = True
 
-        # 이미 열린 통합문서가 있으면 재사용
         self._wb = None
         target = self.path.lower()
         try:
@@ -154,6 +135,7 @@ class ExcelWorkbook(object):
         self.rows = []
         used = self._ws.UsedRange
         max_row = used.Row + used.Rows.Count - 1
+        self._max_col = max(1, used.Column + used.Columns.Count - 1)
         for r in range(2, max_row + 1):
             code_raw = self._ws.Cells(r, 2).Value
             qty_raw = self._ws.Cells(r, 4).Value
@@ -172,31 +154,87 @@ class ExcelWorkbook(object):
                     "qty_raw": qty_raw,
                 }
             )
-        self._log(u"엑셀 데이터 행 수: {0}".format(len(self.rows)))
+        self._log(
+            u"엑셀 데이터 행 수: {0} (사용열={1})".format(len(self.rows), self._max_col)
+        )
         return self.rows
 
-    def _paint_yellow(self, cell):
+    def move_unmatched_rows(self, excel_rows, out_path=None):
+        """
+        미매칭 행 전체를 동일 양식(1행 서식 포함) 새 엑셀로 옮김.
+        - 1행(헤더) EntireRow 복사
+        - 해당 데이터 행 EntireRow 복사 후 원본에서 삭제
+        """
+        if not excel_rows:
+            return None
+
+        row_nums = sorted(set(int(r["row"]) for r in excel_rows))
+        base, ext = os.path.splitext(self.path)
+        if not ext:
+            ext = u".xls"
+        if not out_path:
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            out_path = u"{0}_미매칭_{1}{2}".format(base, stamp, ext)
+        out_path = os.path.abspath(out_path)
+
+        # 새 통합문서
+        new_wb = self._excel.Workbooks.Add()
+        new_ws = new_wb.Worksheets(1)
+
+        # 1행 서식+값 복사
+        self._ws.Rows(1).Copy()
+        new_ws.Rows(1).PasteSpecial(Paste=-4104)  # xlPasteAll
         try:
-            cell.Interior.Pattern = 1  # xlSolid
-            cell.Interior.ColorIndex = XL_YELLOW
+            self._excel.CutCopyMode = False
         except Exception:
-            cell.Interior.Color = COLOR_YELLOW
-        self._shade_count += 1
+            pass
 
-    def shade_missing(self, excel_row):
-        """SAP에 없는 자재코드 — B열 노란색."""
-        self._paint_yellow(self._ws.Cells(excel_row, 2))
+        dest = 2
+        for r in row_nums:
+            self._ws.Rows(r).Copy()
+            new_ws.Rows(dest).PasteSpecial(Paste=-4104)
+            dest += 1
+        try:
+            self._excel.CutCopyMode = False
+        except Exception:
+            pass
 
-    def shade_qty_match(self, excel_row):
-        """수량 일치 — D열 노란색."""
-        self._paint_yellow(self._ws.Cells(excel_row, 4))
+        # 열 너비 대략 맞춤
+        try:
+            for c in range(1, self._max_col + 1):
+                new_ws.Columns(c).ColumnWidth = self._ws.Columns(c).ColumnWidth
+        except Exception:
+            pass
+
+        # 원본에서 아래 행부터 삭제 (행 번호 밀림 방지)
+        for r in sorted(row_nums, reverse=True):
+            self._ws.Rows(r).Delete()
+
+        try:
+            if os.path.isfile(out_path):
+                os.remove(out_path)
+        except Exception:
+            pass
+
+        # .xls / .xlsx 저장
+        # 56 = xlExcel8 (.xls), 51 = xlOpenXMLWorkbook (.xlsx)
+        file_format = 56 if ext.lower() == u".xls" else 51
+        try:
+            new_wb.SaveAs(out_path, FileFormat=file_format)
+        except Exception:
+            # 확장자 강제 xlsx 재시도
+            out_path = os.path.splitext(out_path)[0] + u".xlsx"
+            new_wb.SaveAs(out_path, FileFormat=51)
+
+        new_wb.Close(SaveChanges=False)
+        self._log(u"미매칭 {0}행 이동 → {1}".format(len(row_nums), out_path))
+        return out_path
 
     def save(self):
         try:
             self._wb.Save()
-            self._log(u"엑셀 저장 완료 (음영 {0}칸)".format(self._shade_count))
+            self._log(u"엑셀 저장 완료")
         except Exception as e:
-            # .xls 잠금 등 — 다른 이름으로 저장 시도
             self._warn(u"엑셀 저장 실패: {0}".format(e))
             alt = os.path.splitext(self.path)[0] + u"_결과.xls"
             try:

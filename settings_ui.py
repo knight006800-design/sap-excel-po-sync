@@ -235,22 +235,16 @@ class RowQtySettings(object):
 
 
 def sap_config_ready(cfg=None):
-    """동기화에 필요한 좌표가 갖춰졌는지."""
+    """동기화에 필요한 행/수량 좌표가 갖춰졌는지 (OCR 영역 불필요)."""
     cfg = cfg or load_config()
     sap = cfg.get("sap") or {}
     try:
-        left = int(sap["material_left"])
-        top = int(sap["material_top"])
-        right = int(sap["material_right"])
-        bottom = int(sap["material_bottom"])
         qty_x = int(sap["qty_center_x"])
         first_y = int(sap["first_row_y"])
         rh = int(sap["row_height"])
     except Exception:
         return False
-    if right - left < 20 or bottom - top < 20:
-        return False
-    if rh < 5 or qty_x < 0:
+    if rh < 5 or qty_x < 0 or first_y < 0:
         return False
     return True
 
@@ -260,12 +254,8 @@ def format_sap_status(cfg=None):
     sap = cfg.get("sap") or {}
     ready = sap_config_ready(cfg)
     return (
-        u"설정상태: {0} | 영역=({1},{2})-({3},{4}) 행Y={5} 행H={6} 수량X={7}".format(
-            u"준비됨" if ready else u"미완료",
-            sap.get("material_left"),
-            sap.get("material_top"),
-            sap.get("material_right"),
-            sap.get("material_bottom"),
+        u"설정상태: {0} | 행Y={1} 행H={2} 수량X={3}".format(
+            u"준비됨" if ready else u"미완료(행/수량 설정 필요)",
             sap.get("first_row_y"),
             sap.get("row_height"),
             sap.get("qty_center_x"),
