@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""엑셀 .xls / .xlsx 읽기·미매칭 행 이동 (Excel COM)."""
+"""엑셀 .xls / .xlsx 읽기·미매칭 행 추출 (Excel COM)."""
 from __future__ import print_function
 
 import os
@@ -54,9 +54,8 @@ def _paste_lines(text):
 
 
 def parse_pasted_sap_codes(text):
-    """Ctrl+V 붙여넣기 텍스트 → 코드 목록 (SAP 화면 위→아래 순서, 중복 제거)."""
+    """Ctrl+V 붙여넣기 텍스트 → 코드 목록 (SAP 화면 위→아래 순서, 행 유지)."""
     codes = []
-    seen = set()
     for line in _paste_lines(text):
         parts = re.split(r"[\t;|]+", line)
         candidate = u""
@@ -67,13 +66,27 @@ def parse_pasted_sap_codes(text):
                 break
         if not candidate:
             candidate = normalize_code(line)
-        if not candidate or len(candidate) < 4:
+        if not candidate:
             continue
-        if candidate in seen:
-            continue
-        seen.add(candidate)
         codes.append(candidate)
     return codes
+
+
+def format_qty_text(value):
+    """붙여넣기용 수량 문자열."""
+    if value is None:
+        return u""
+    if isinstance(value, float) and value == int(value):
+        return str(int(value))
+    if isinstance(value, int):
+        return str(value)
+    try:
+        num = float(value)
+        if num == int(num):
+            return str(int(num))
+        return str(value)
+    except Exception:
+        return str(value).strip()
 
 
 def parse_pasted_sap_qtys(text):
@@ -183,27 +196,34 @@ class ExcelWorkbook(object):
 
     def move_unmatched_rows(self, excel_rows, out_path=None):
         """
-        미매칭 행 전체를 동일 양식(1행 서식 포함) 새 엑셀로 옮김.
-        - 1행(헤더) EntireRow 복사
-        - 해당 데이터 행 EntireRow 복사 후 원본에서 삭제
+        미매칭 행만 동일 양식(1행 서식 포함) 새 엑셀로 복사·추출.
+        원본 파일은 수정·저장하지 않음.
         """
         if not excel_rows:
             return None
 
         row_nums = sorted(set(int(r["row"]) for r in excel_rows))
-        base, ext = os.path.splitext(self.path)
-        if not ext:
-            ext = u".xls"
-        if not out_path:
-            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            out_path = u"{0}_미매칭_{1}{2}".format(base, stamp, ext)
-        out_path = os.path.abspath(out_path)
+        src_ext = os.path.splitext(self.path)[1] or u".xls"
 
-        # 새 통합문서
+        if not out_path:
+            base = os.path.splitext(self.path)[0]
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            out_path = u"{0}_미매칭_{1}{2}".format(base, stamp, src_ext)
+        else:
+            out_path = os.path.abspath(out_path)
+            folder = os.path.dirname(out_path)
+            if folder and not os.path.isdir(folder):
+                os.makedirs(folder)
+            name, ext = os.path.splitext(out_path)
+            if not ext:
+                out_path = name + src_ext
+
+        out_path = os.path.abspath(out_path)
+        ext = os.path.splitext(out_path)[1] or src_ext
+
         new_wb = self._excel.Workbooks.Add()
         new_ws = new_wb.Worksheets(1)
 
-        # 1행 서식+값 복사
         self._ws.Rows(1).Copy()
         new_ws.Rows(1).PasteSpecial(Paste=-4104)  # xlPasteAll
         try:
@@ -221,16 +241,11 @@ class ExcelWorkbook(object):
         except Exception:
             pass
 
-        # 열 너비 대략 맞춤
         try:
             for c in range(1, self._max_col + 1):
                 new_ws.Columns(c).ColumnWidth = self._ws.Columns(c).ColumnWidth
         except Exception:
             pass
-
-        # 원본에서 아래 행부터 삭제 (행 번호 밀림 방지)
-        for r in sorted(row_nums, reverse=True):
-            self._ws.Rows(r).Delete()
 
         try:
             if os.path.isfile(out_path):
@@ -238,18 +253,18 @@ class ExcelWorkbook(object):
         except Exception:
             pass
 
-        # .xls / .xlsx 저장
         # 56 = xlExcel8 (.xls), 51 = xlOpenXMLWorkbook (.xlsx)
         file_format = 56 if ext.lower() == u".xls" else 51
         try:
             new_wb.SaveAs(out_path, FileFormat=file_format)
         except Exception:
-            # 확장자 강제 xlsx 재시도
             out_path = os.path.splitext(out_path)[0] + u".xlsx"
             new_wb.SaveAs(out_path, FileFormat=51)
 
         new_wb.Close(SaveChanges=False)
-        self._log(u"미매칭 {0}행 이동 → {1}".format(len(row_nums), out_path))
+        self._log(
+            u"미매칭 {0}행 추출(원본 유지) → {1}".format(len(row_nums), out_path)
+        )
         return out_path
 
     def save(self):

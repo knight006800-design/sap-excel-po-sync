@@ -245,9 +245,9 @@ class RowQtySettings(object):
         self._log(
             u"행/수량 저장: first_y={0} row_h={1} qty_x={2}".format(first_y, rh, qty_x)
         )
-        messagebox.showinfo(u"저장됨", u"행/수량 설정이 저장되었습니다.", parent=self.win)
         if self.on_done:
             self.on_done()
+        self._close()
 
     def _reset(self):
         ok = messagebox.askyesno(
