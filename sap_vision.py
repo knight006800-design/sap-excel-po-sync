@@ -12,9 +12,9 @@ from PIL import Image, ImageOps, ImageFilter, ImageEnhance
 from excel_io import normalize_code, normalize_qty
 
 
-# 자재코드처럼 보이는 패턴 (예: 88510-AA000, DPT42-MX510, RP-01-V1.0A)
+# 자재코드: 영문·숫자·하이픈만 (예: 88511-AA000)
 CODE_RE = re.compile(
-    r"[A-Z0-9][A-Z0-9._/\-]{2,30}",
+    r"[A-Z0-9][A-Z0-9\-]{2,30}",
     re.IGNORECASE,
 )
 
@@ -89,7 +89,10 @@ def ocr_raw(img, cfg, psm=6, digits_only=False):
     proc = preprocess(img, scale=scale)
     config = "--psm {0}".format(psm)
     if digits_only:
-        config += " -c tessedit_char_whitelist=0123456789,."
+        config += " -c tessedit_char_whitelist=0123456789"
+    else:
+        # 자재코드: 영문 대문자·숫자·하이픈만
+        config += " -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"
     try:
         text = pytesseract.image_to_string(proc, lang="eng", config=config)
     except Exception:
@@ -103,6 +106,8 @@ def extract_codes(text):
         return []
     found = []
     cleaned = text.upper().replace(" ", "")
+    cleaned = cleaned.replace(u"$", u"8").replace(u"§", u"8")
+    cleaned = cleaned.replace(u"/", u"\n")
     for m in CODE_RE.finditer(cleaned):
         token = m.group(0).strip("-._/")
         if len(token) < 4:
@@ -122,16 +127,60 @@ def extract_codes(text):
 
 
 def ocr_confusions(code):
-    """OCR 혼동 문자 치환 후보 (O/0, I/1, S/5, B/8)."""
+    """OCR 혼동 문자 치환 후보 (O/0, I/1, S/5, B/8, $/8)."""
     if not code:
         return []
     base = normalize_code(code)
     variants = set([base, base.replace("-", "").replace(".", "")])
-    pairs = [("O", "0"), ("0", "O"), ("I", "1"), ("1", "I"), ("S", "5"), ("5", "S"), ("B", "8"), ("8", "B")]
+    pairs = [
+        ("O", "0"),
+        ("0", "O"),
+        ("I", "1"),
+        ("1", "I"),
+        ("S", "5"),
+        ("5", "S"),
+        ("B", "8"),
+        ("8", "B"),
+        ("$", "8"),
+    ]
     for a, b in pairs:
         if a in base:
             variants.add(base.replace(a, b))
     return list(variants)
+
+
+def codes_fuzzy_equal(excel_code, sap_code):
+    """엑셀코드 vs OCR코드 유사 판정 (앞자리 누락 등)."""
+    a = normalize_code(excel_code).replace("-", "").replace(".", "")
+    b = normalize_code(sap_code).replace("-", "").replace(".", "")
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    # 한쪽이 다른 쪽 접미사 (88511 vs 8511)
+    if len(a) >= 5 and len(b) >= 4:
+        if a.endswith(b) and len(a) - len(b) <= 2:
+            return True
+        if b.endswith(a) and len(b) - len(a) <= 2:
+            return True
+        if a.startswith(b) and len(a) - len(b) <= 2:
+            return True
+        if b.startswith(a) and len(b) - len(a) <= 2:
+            return True
+    # 한 글자 차이
+    if abs(len(a) - len(b)) <= 1 and len(a) >= 5 and len(b) >= 5:
+        # 단순 불일치 개수
+        if len(a) == len(b):
+            diff = sum(1 for x, y in zip(a, b) if x != y)
+            if diff <= 1:
+                return True
+        else:
+            shorter, longer = (a, b) if len(a) < len(b) else (b, a)
+            # 한 글자 삽입/삭제
+            for i in range(len(longer)):
+                if longer[:i] + longer[i + 1 :] == shorter:
+                    return True
+    return False
 
 
 def clean_material_code(text):
@@ -383,5 +432,11 @@ class SapScreenReader(object):
             for v in ocr_confusions(c):
                 compact = v.replace("-", "").replace(".", "")
                 if v in want or compact in want:
+                    self._log(u"혼동매칭: 엑셀={0} ≈ SAP={1}".format(key, c))
                     return row
+        # 앞자리 누락 등 유사 매칭 (88511 vs 8511)
+        for c, row in self.by_code.items():
+            if codes_fuzzy_equal(key, c):
+                self._log(u"유사매칭: 엑셀={0} ≈ SAP={1}".format(key, c))
+                return row
         return None

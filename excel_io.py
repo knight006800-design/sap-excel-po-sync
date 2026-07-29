@@ -12,6 +12,7 @@ XL_YELLOW = 6
 
 
 def normalize_qty(value):
+    """수량 정규화. OCR 잡음('0 100.11', '0 30011')도 처리."""
     if value is None:
         return None
     if isinstance(value, (int, float)):
@@ -22,25 +23,68 @@ def normalize_qty(value):
         except Exception:
             return None
     text = str(value).strip()
-    if not text:
+    if not text or text in (u"-", u"."):
         return None
-    text = text.replace(",", "").replace(" ", "")
-    text = re.sub(r"[^\d.\-]", "", text)
-    if not text or text in (".", "-", "-."):
+    # 여러 조각이면 각각 후보로
+    parts = re.split(r"[\s]+", text.replace(",", ""))
+    candidates = []
+    for part in parts:
+        cleaned = re.sub(r"[^\d.\-]", "", part)
+        if not cleaned or cleaned in (".", "-", "-."):
+            continue
+        try:
+            num = float(cleaned)
+            # 말이 안 되는 과도한 소수/길이 제외 전 일단 후보
+            if num < 0:
+                continue
+            candidates.append(num)
+        except Exception:
+            continue
+    if not candidates:
         return None
-    try:
-        num = float(text)
-        if num == int(num):
-            return int(num)
-        return num
-    except Exception:
-        return None
+
+    def score(n):
+        # 정수 선호, 앞에 붙은 0 잡음은 강하게 배제
+        is_int = abs(n - round(n)) < 1e-6
+        s = 0
+        if is_int:
+            s += 5
+            n_i = int(round(n))
+            digits = len(str(abs(n_i)))
+            if n_i == 0:
+                s -= 20
+            elif 1 <= digits <= 6:
+                s += 3
+            if 10 <= n_i <= 999999:
+                s += 5
+        else:
+            # 100.11 같은 소수는 정수부만 다시 고려하도록 낮은 점수
+            s -= 3
+            n_i = int(n)
+            if 10 <= n_i <= 999999:
+                s += 1
+        return s
+
+    best = max(candidates, key=score)
+    # 소수면 정수부 후보가 더 나을 수 있음
+    if abs(best - round(best)) > 1e-6:
+        as_int = int(best)
+        if as_int >= 10 and score(float(as_int)) >= score(best):
+            return as_int
+    if abs(best - round(best)) < 1e-6:
+        return int(round(best))
+    return best
 
 
 def normalize_code(value):
     if value is None:
         return u""
-    return str(value).strip().upper()
+    text = str(value).strip().upper()
+    # OCR: $ 를 8 로 자주 오인
+    text = text.replace(u"$", u"8").replace(u"§", u"8")
+    # 영문·숫자·하이픈만 유지
+    text = re.sub(r"[^A-Z0-9\-]", "", text)
+    return text
 
 
 class ExcelWorkbook(object):
