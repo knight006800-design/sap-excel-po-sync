@@ -69,10 +69,29 @@ class SyncEngine(object):
                     return
 
             reader = SapScreenReader(cfg, logger=log)
-            reader.scan()
+            try:
+                reader.scan()
+            except Exception as e:
+                wb.close()
+                raise
+
+            if not reader.rows:
+                wb.close()
+                raise RuntimeError(
+                    u"SAP OCR 인식 행 수 0 — 보정/화면을 확인하세요. "
+                    u"(전부 미존재로 처리하지 않고 중단합니다)"
+                )
 
             stats = {"match": 0, "updated": 0, "missing": 0, "skip": 0, "error": 0}
-            log.step(u"행처리시작", u"엑셀 {0}행".format(len(rows)))
+            log.step(
+                u"행처리시작",
+                u"엑셀 {0}행 / SAP인식 {1}행".format(len(rows), len(reader.rows)),
+            )
+            log.info(
+                u"SAP인식코드: {0}".format(
+                    u", ".join([r["code"] for r in reader.rows[:20]])
+                )
+            )
 
             for item in rows:
                 if self._stopped():
@@ -87,7 +106,9 @@ class SyncEngine(object):
                 if sap is None:
                     wb.shade_missing(excel_row)
                     stats["missing"] += 1
-                    log.info(u"미존재 → B음영: {0} (엑셀행{1})".format(code, excel_row))
+                    log.info(
+                        u"미존재 → B열노란색: {0} (엑셀행{1})".format(code, excel_row)
+                    )
                     continue
 
                 sap_qty = sap.get("qty")
@@ -98,7 +119,9 @@ class SyncEngine(object):
                     wb.shade_qty_match(excel_row)
                     stats["match"] += 1
                     log.info(
-                        u"수량일치 → D노랑: {0} excel={1} sap={2}".format(code, eq, sq)
+                        u"수량일치 → D열노란색: {0} excel={1} sap={2}".format(
+                            code, eq, sq
+                        )
                     )
                     continue
 
