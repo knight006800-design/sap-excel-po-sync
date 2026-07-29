@@ -101,16 +101,14 @@ def extract_codes(text):
     """OCR 텍스트에서 자재코드 후보 추출."""
     if not text:
         return []
-    # O/0 혼동 보정은 코드 단위로
     found = []
-    for m in CODE_RE.finditer(text.upper().replace(" ", "")):
+    cleaned = text.upper().replace(" ", "")
+    for m in CODE_RE.finditer(cleaned):
         token = m.group(0).strip("-._/")
         if len(token) < 4:
             continue
-        # 순수 숫자만(날짜 등) 제외 — 하이픈/문자 없으면 스킵하되 5자리 이상은 허용
         if token.isdigit() and len(token) < 6:
             continue
-        # 헤더성 단어 제외
         if token in (
             u"EA",
             u"CN7",
@@ -121,6 +119,19 @@ def extract_codes(text):
             continue
         found.append(normalize_code(token))
     return found
+
+
+def ocr_confusions(code):
+    """OCR 혼동 문자 치환 후보 (O/0, I/1, S/5, B/8)."""
+    if not code:
+        return []
+    base = normalize_code(code)
+    variants = set([base, base.replace("-", "").replace(".", "")])
+    pairs = [("O", "0"), ("0", "O"), ("I", "1"), ("1", "I"), ("S", "5"), ("5", "S"), ("B", "8"), ("8", "B")]
+    for a, b in pairs:
+        if a in base:
+            variants.add(base.replace(a, b))
+    return list(variants)
 
 
 def clean_material_code(text):
@@ -202,12 +213,15 @@ class SapScreenReader(object):
             except Exception:
                 pass
 
-        # 1차: 전체 열 OCR (디버그 + 보조)
+        # 1차: 전체 열 OCR (전체 기록)
         col_text = ocr_raw(full, self.cfg, psm=6)
-        self._log(u"열전체OCR: {0}".format(col_text.replace("\n", " / ")[:300]))
+        self._log(u"열전체OCR(전체): {0}".format(col_text.replace("\n", " / ")))
+        if self.logger and hasattr(self.logger, "save_text"):
+            self.logger.save_text(u"OCR_열전체", col_text)
+        elif self.logger:
+            self.logger.info(u"[OCR원문저장] 열전체 길이={0}".format(len(col_text)))
 
         self.rows = []
-        # first_y가 영역 밖이면 영역 상단+행높이/2로 보정
         if first_y < top or first_y > bottom:
             self._warn(
                 u"첫 행 Y({0})가 자재코드 영역 밖입니다. 영역 기준으로 자동 조정합니다.".format(
@@ -216,8 +230,9 @@ class SapScreenReader(object):
             )
             first_y = top + row_h // 2
 
-        empty_streak = 0
-        for i in range(max(n_rows, 40)):
+        # 영역 끝까지 전부 스캔 (중간에 실패해도 중단하지 않음)
+        max_i = max(n_rows, int((bottom - top) / float(row_h)) + 3)
+        for i in range(max_i):
             cy = first_y + i * row_h
             if cy > bottom + row_h:
                 break
@@ -229,11 +244,12 @@ class SapScreenReader(object):
             mat_img = grab_region(left, cell_top, right, cell_bottom)
             code, raw = ocr_cell_code(mat_img, self.cfg)
             if not code or len(code) < 4:
-                empty_streak += 1
-                if empty_streak >= 3 and len(self.rows) > 0:
-                    break
+                self._log(
+                    u"SAP행{0} 인식실패 y={1} raw=[{2}]".format(
+                        i, cy, (raw or u"").replace("\n", " ")[:120]
+                    )
+                )
                 continue
-            empty_streak = 0
 
             q_left = qty_x - 55
             q_right = qty_x + 55
@@ -251,26 +267,43 @@ class SapScreenReader(object):
             }
             self.rows.append(item)
             self._log(
-                u"SAP행{0}: code={1} qty={2} (qraw={3}) click=({4},{5})".format(
-                    i, code, qty, qty_raw, qty_x, cy
+                u"SAP행{0}: code={1} qty={2} (qraw={3}) raw=[{4}] click=({5},{6})".format(
+                    i,
+                    code,
+                    qty,
+                    qty_raw,
+                    (raw or u"").replace("\n", " ")[:80],
+                    qty_x,
+                    cy,
                 )
             )
 
-        # 2차: 행 OCR 실패 시 열 전체에서 코드만 이라도 수집
-        if not self.rows:
-            self._warn(u"행단위 OCR 실패 → 열전체 텍스트에서 코드 재추출 시도")
-            codes = extract_codes(col_text)
-            # 중복 제거 순서 유지
-            seen = set()
-            uniq = []
-            for c in codes:
-                if c not in seen:
-                    seen.add(c)
-                    uniq.append(c)
-            for i, code in enumerate(uniq):
+        # 열전체에서 뽑은 코드도 항상 병합 (행 OCR이 일부만 성공해도 보완)
+        col_codes = extract_codes(col_text)
+        existing = set([r["code"] for r in self.rows])
+        for code in col_codes:
+            if code in existing:
+                continue
+            # 클릭 Y는 대략 배치 (수량 수정 정확도는 행OCR 우선)
+            cy = first_y + len(self.rows) * row_h
+            self.rows.append(
+                {
+                    "index": len(self.rows),
+                    "code": code,
+                    "qty": None,
+                    "qty_raw": u"",
+                    "qty_x": qty_x,
+                    "qty_y": min(cy, bottom - 2),
+                    "ocr_code_raw": u"(열전체병합)",
+                }
+            )
+            existing.add(code)
+            self._log(u"열병합 추가코드: {0}".format(code))
+
+        if not self.rows and col_codes:
+            self._warn(u"행단위 OCR 실패 → 열전체 코드만 사용")
+            for i, code in enumerate(col_codes):
                 cy = first_y + i * row_h
-                if cy > bottom + row_h:
-                    cy = top + row_h // 2 + i * row_h
                 self.rows.append(
                     {
                         "index": i,
@@ -278,25 +311,61 @@ class SapScreenReader(object):
                         "qty": None,
                         "qty_raw": u"",
                         "qty_x": qty_x,
-                        "qty_y": cy,
+                        "qty_y": cy if cy <= bottom else top + row_h // 2 + i * row_h,
                         "ocr_code_raw": u"(열전체)",
                     }
                 )
-                self._log(u"열추출 SAP행{0}: code={1} click=({2},{3})".format(i, code, qty_x, cy))
+                self._log(
+                    u"열추출 SAP행{0}: code={1} click=({2},{3})".format(
+                        i, code, qty_x, cy
+                    )
+                )
 
         self.by_code = {}
         for r in self.rows:
             if r["code"] not in self.by_code:
                 self.by_code[r["code"]] = r
 
+        # OCR 결과 전부 파일로 저장
+        dump_lines = [
+            u"=== SAP OCR 결과 전체 ===",
+            u"인식행수: {0}".format(len(self.rows)),
+            u"열전체OCR:",
+            col_text,
+            u"",
+            u"--- 행별 ---",
+        ]
+        for r in self.rows:
+            dump_lines.append(
+                u"idx={0} code={1} qty={2} qraw={3} raw={4} click=({5},{6})".format(
+                    r["index"],
+                    r["code"],
+                    r["qty"],
+                    r.get("qty_raw"),
+                    r.get("ocr_code_raw"),
+                    r["qty_x"],
+                    r["qty_y"],
+                )
+            )
+        dump = u"\n".join(dump_lines)
+        if self.logger and hasattr(self.logger, "save_text"):
+            path = self.logger.save_text(u"OCR결과", dump)
+            self._log(u"OCR결과 파일: {0}".format(path))
+        else:
+            self._log(dump)
+
         self._log(u"SAP OCR 인식 행 수: {0}".format(len(self.rows)))
+        self._log(
+            u"SAP OCR 코드목록: {0}".format(
+                u", ".join([r["code"] for r in self.rows])
+            )
+        )
         if not self.rows:
             raise RuntimeError(
                 u"SAP 화면에서 자재코드를 하나도 읽지 못했습니다.\n"
-                u"1) SAP가 좌측 모니터에 보이는지\n"
+                u"1) SAP가 주모니터에 보이는지\n"
                 u"2) [SAP 화면 보정]을 다시 했는지\n"
-                u"3) 구동점검 폴더의 캡처 그림에 자재코드가 들어있는지\n"
-                u"확인 후 다시 실행하세요."
+                u"3) 구동점검 폴더의 캡처/OCR결과 파일을 확인하세요."
             )
         return self.rows
 
@@ -305,9 +374,14 @@ class SapScreenReader(object):
         hit = self.by_code.get(key)
         if hit:
             return hit
-        # 하이픈 제거 비교 (OCR이 하이픈을 빠뜨린 경우)
-        key2 = key.replace("-", "").replace(".", "")
+        # 하이픈/점 제거 + OCR 혼동 문자
+        want = set()
+        for v in ocr_confusions(key):
+            want.add(v)
+            want.add(v.replace("-", "").replace(".", ""))
         for c, row in self.by_code.items():
-            if c.replace("-", "").replace(".", "") == key2:
-                return row
+            for v in ocr_confusions(c):
+                compact = v.replace("-", "").replace(".", "")
+                if v in want or compact in want:
+                    return row
         return None

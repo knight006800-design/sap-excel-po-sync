@@ -110,7 +110,11 @@ class SyncEngine(object):
                     wb.shade_missing(excel_row)
                     stats["missing"] += 1
                     log.info(
-                        u"미존재 → B열노란색: {0} (엑셀행{1})".format(code, excel_row)
+                        u"미존재 → B열노란색: {0} (엑셀행{1}) | SAP인식목록=[{2}]".format(
+                            code,
+                            excel_row,
+                            u", ".join([r["code"] for r in reader.rows]),
+                        )
                     )
                     continue
 

@@ -97,6 +97,21 @@ class DriveCheckLog(object):
             self.error(u"스크린샷 저장 실패: {0}".format(e))
             return None
 
+    def save_text(self, tag, content):
+        """OCR 등 긴 텍스트를 구동점검 폴더에 저장."""
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        name = u"구동점검_{0}_{1}.txt".format(tag, stamp)
+        safe = name.replace(u"/", u"_").replace(u"\\", u"_")
+        out = os.path.join(self.base, safe)
+        try:
+            with open(out, "w", encoding="utf-8") as f:
+                f.write(content if content is not None else u"")
+            self.info(u"텍스트 저장: {0}".format(out))
+            return out
+        except Exception as e:
+            self.error(u"텍스트 저장 실패: {0}".format(e))
+            return None
+
     def finish(self, summary=u""):
         self.log(u"=" * 60)
         self.log(u"구동점검 종료: {0}".format(datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
