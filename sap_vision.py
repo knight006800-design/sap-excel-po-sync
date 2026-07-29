@@ -5,9 +5,8 @@ from __future__ import print_function
 import os
 import re
 
-import numpy as np
 import pyautogui
-from PIL import Image, ImageOps, ImageFilter
+from PIL import ImageOps, ImageFilter
 
 from excel_io import normalize_code, normalize_qty
 
