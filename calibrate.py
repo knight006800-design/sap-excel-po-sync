@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
-"""SAP 화면 마우스 보정 — 주모니터 안내 + 클릭통과 십자선 (그림 없음)."""
+"""SAP 화면 마우스 보정 — 주모니터 안내(빨간점 그림) + 노란＋마커."""
 from __future__ import print_function
 
+import os
+import sys
 import threading
 import time
 
@@ -13,6 +15,7 @@ except ImportError:
     import tkMessageBox as messagebox
 
 import pyautogui
+from PIL import Image, ImageTk
 
 from monitors import (
     enum_monitors,
@@ -21,123 +24,82 @@ from monitors import (
     primary_monitor,
     secondary_monitors,
 )
-from paths_util import load_config, save_config
+from paths_util import app_dir, load_config, save_config
 
 
-# (키, 짧은제목, 정밀설명)
+def guide_images_dir():
+    local = os.path.join(app_dir(), "guide_images")
+    if os.path.isdir(local):
+        return local
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        bundled = os.path.join(sys._MEIPASS, "guide_images")
+        if os.path.isdir(bundled):
+            return bundled
+    return local
+
+
+# (키, 짧은제목, 짧은설명, 그림파일)
 STEPS = [
     (
         u"material_tl",
-        u"1/5  자재코드 · 왼쪽 위 모서리",
-        u"【정확히】부모니터 SAP 표에서\n"
-        u"첫 번째 데이터 행의 「자재코드」칸을 보세요.\n"
-        u"예: 88512-P9000 글자가 들어있는 칸.\n\n"
-        u"그 칸의 ★왼쪽 위 모서리★ (글자 시작점 바로 위-왼쪽 꼭짓점)을\n"
-        u"십자선(+) 중심에 맞춘 뒤 클릭하세요.\n"
-        u"칸 중앙이 아니라 모서리입니다.",
+        u"1/5  자재코드 · 왼쪽 위",
+        u"SAP에서 빨간 점 위치 = 첫 행 자재코드 칸의 왼쪽 위 모서리",
+        u"guide_material_tl.png",
     ),
     (
         u"material_br",
-        u"2/5  자재코드 · 오른쪽 아래 모서리",
-        u"【정확히】화면에 보이는 마지막 데이터 행의\n"
-        u"「자재코드」칸 ★오른쪽 아래 모서리★ 를 클릭하세요.\n\n"
-        u"1번에서 찍은 왼쪽 위와 함께\n"
-        u"자재코드 열 전체를 감싸는 사각형이 됩니다.\n"
-        u"열 밖(자재명 쪽)으로 나가지 마세요.",
+        u"2/5  자재코드 · 오른쪽 아래",
+        u"SAP에서 빨간 점 위치 = 마지막 행 자재코드 칸의 오른쪽 아래 모서리",
+        u"guide_material_br.png",
     ),
     (
         u"qty_x",
-        u"3/5  오더수량 · 숫자 정중앙",
-        u"【정확히】첫 데이터 행의 「오더수량」칸을 찾으세요.\n"
-        u"(납품예정일 오른쪽, 숫자만 있는 칸. 예: 360)\n\n"
-        u"그 숫자 ★정중앙★ 을 클릭하세요.\n"
-        u"여기 클릭의 X좌표만 사용합니다.",
+        u"3/5  오더수량 · 정중앙",
+        u"SAP에서 빨간 점 위치 = 첫 행 오더수량 숫자 정중앙",
+        u"guide_qty_x.png",
     ),
     (
         u"row1_y",
         u"4/5  첫 행 · 세로 중앙",
-        u"【정확히】첫 번째 데이터 행에서\n"
-        u"자재코드 글자 높이의 ★세로 한가운데★ 를 클릭하세요.\n\n"
-        u"행의 위/아래 선이 아니라, 글자 중간 높이입니다.\n"
-        u"여기 클릭의 Y좌표만 사용합니다.",
+        u"SAP에서 빨간 점 위치 = 첫 데이터 행의 세로 한가운데",
+        u"guide_row1_y.png",
     ),
     (
         u"row2_y",
         u"5/5  둘째 행 · 세로 중앙",
-        u"【정확히】바로 아래 ★두 번째 데이터 행★ 의\n"
-        u"세로 한가운데를 클릭하세요.\n\n"
-        u"1행과 2행 간격으로 행 높이를 계산합니다.\n"
-        u"같은 열(자재코드 근처)에서 찍으면 정확합니다.",
+        u"SAP에서 빨간 점 위치 = 둘째 데이터 행의 세로 한가운데",
+        u"guide_row2_y.png",
     ),
 ]
 
 
-def _make_clickthrough(hwnd):
-    """창이 마우스 클릭을 가로채지 않게 (SAP 클릭 가능)."""
-    import ctypes
-
-    GWL_EXSTYLE = -20
-    WS_EX_LAYERED = 0x00080000
-    WS_EX_TRANSPARENT = 0x00000020
-    WS_EX_TOOLWINDOW = 0x00000080
-    user32 = ctypes.windll.user32
-    try:
-        style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-        user32.SetWindowLongW(
-            hwnd,
-            GWL_EXSTYLE,
-            style | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW,
-        )
-    except Exception:
-        pass
-
-
-class Crosshair(object):
-    """마우스 위치를 따라가는 빨간 십자선 (클릭 통과)."""
+class MouseMarker(object):
+    """마우스 옆 노란＋ (투명창 미사용 → 검은박스 방지)."""
 
     def __init__(self, root):
         self.win = tk.Toplevel(root)
         self.win.overrideredirect(True)
         self.win.attributes("-topmost", True)
-        try:
-            self.win.attributes("-transparentcolor", "white")
-        except Exception:
-            pass
-        self.win.configure(bg="white")
-        self.size = 48
-        self.canvas = tk.Canvas(
+        self.win.configure(bg="#FFEB3B")
+        tk.Label(
             self.win,
-            width=self.size,
-            height=self.size,
-            bg="white",
-            highlightthickness=0,
-            bd=0,
-        )
-        self.canvas.pack()
-        c = self.size // 2
-        self.canvas.create_line(c, 0, c, self.size, fill="red", width=2)
-        self.canvas.create_line(0, c, self.size, c, fill="red", width=2)
-        self.canvas.create_oval(c - 4, c - 4, c + 4, c + 4, outline="red", width=2)
-        self.win.geometry("{0}x{0}+-200+-200".format(self.size))
-        self.win.update_idletasks()
-        try:
-            hwnd = self.win.winfo_id()
-            # Tk on Windows: often need GetParent
-            import ctypes
-
-            parent = ctypes.windll.user32.GetParent(hwnd)
-            _make_clickthrough(parent if parent else hwnd)
-            _make_clickthrough(hwnd)
-        except Exception:
-            pass
+            text=u"＋",
+            font=("Arial", 20, "bold"),
+            fg="#D50000",
+            bg="#FFEB3B",
+            bd=1,
+            relief="solid",
+        ).pack()
+        self.win.geometry("+-400+-400")
         self._alive = True
+        self.offset_x = 18
+        self.offset_y = -34
 
     def move_to(self, x, y):
         if not self._alive:
             return
-        half = self.size // 2
         try:
-            self.win.geometry("{0}x{0}+{1}+{2}".format(self.size, x - half, y - half))
+            self.win.geometry("+{0}+{1}".format(x + self.offset_x, y + self.offset_y))
         except Exception:
             pass
 
@@ -157,7 +119,8 @@ class CalibrateWizard(object):
         self.points = {}
         self._stop = False
         self.win = None
-        self.cross = None
+        self.marker = None
+        self._photo = None
         self.monitors = enum_monitors()
 
     def _log(self, msg):
@@ -167,40 +130,34 @@ class CalibrateWizard(object):
     def start(self):
         secs = secondary_monitors(self.monitors)
         prim = primary_monitor(self.monitors)
-        if not secs:
-            messagebox.showwarning(
-                u"모니터 확인",
-                u"부모니터(보조 모니터)가 감지되지 않았습니다.\n"
-                u"듀얼모니터에서 SAP는 부모니터, 이 프로그램은 주모니터에 두세요.\n"
-                u"그래도 진행은 가능합니다.",
-                parent=self.parent,
-            )
-        else:
+        msg = (
+            u"안내 그림은 주모니터에만 뜹니다. SAP(부모니터)는 가리지 않습니다.\n"
+            u"그림의 빨간 점 = 클릭할 위치입니다.\n"
+            u"주모니터 클릭은 무시됩니다. 취소: ESC"
+        )
+        if secs:
             s = secs[0]
-            messagebox.showinfo(
-                u"보정 시작",
-                u"배치\n"
-                u"· 주모니터(프로그램/안내): ({0},{1})-({2},{3})\n"
-                u"· 부모니터(SAP): ({4},{5})-({6},{7})\n\n"
-                u"안내 창은 주모니터에만 뜹니다. SAP를 가리지 않습니다.\n"
-                u"빨간 십자선(+)을 SAP 목표에 맞추고 클릭하세요.\n"
-                u"주모니터를 클릭하면 무시됩니다. 취소: ESC".format(
-                    prim["left"],
-                    prim["top"],
-                    prim["right"],
-                    prim["bottom"],
-                    s["left"],
-                    s["top"],
-                    s["right"],
-                    s["bottom"],
-                ),
-                parent=self.parent,
-            )
+            msg = (
+                u"주모니터=안내 / 부모니터=SAP\n"
+                u"주: ({0},{1})-({2},{3})\n"
+                u"부: ({4},{5})-({6},{7})\n\n"
+            ).format(
+                prim["left"],
+                prim["top"],
+                prim["right"],
+                prim["bottom"],
+                s["left"],
+                s["top"],
+                s["right"],
+                s["bottom"],
+            ) + msg
+        messagebox.showinfo(u"보정 시작", msg, parent=self.parent)
 
         self.win = tk.Toplevel(self.parent)
-        self.win.title(u"보정 안내 (주모니터)")
+        self.win.title(u"보정 안내 (주모니터) — 빨간 점 위치를 클릭")
         self.win.attributes("-topmost", True)
-        place_window_primary_corner(self.win, width=440, height=320, side=u"right")
+        # 그림이 보이도록 세로로 넉넉히, 주모니터 오른쪽에만
+        place_window_primary_corner(self.win, width=480, height=520, side=u"right")
         self.win.configure(bg="#fff8e1")
 
         self.title_lbl = tk.Label(
@@ -209,10 +166,10 @@ class CalibrateWizard(object):
             font=("Malgun Gothic", 12, "bold"),
             bg="#fff8e1",
             fg="#b71c1c",
-            wraplength=410,
+            wraplength=450,
             justify="left",
         )
-        self.title_lbl.pack(anchor="w", padx=12, pady=(10, 4))
+        self.title_lbl.pack(anchor="w", padx=10, pady=(8, 2))
 
         self.detail = tk.Label(
             self.win,
@@ -220,56 +177,76 @@ class CalibrateWizard(object):
             font=("Malgun Gothic", 10),
             bg="#fff8e1",
             fg="#222",
-            wraplength=410,
+            wraplength=450,
             justify="left",
         )
-        self.detail.pack(anchor="w", padx=12, pady=4)
+        self.detail.pack(anchor="w", padx=10, pady=2)
+
+        self.img_label = tk.Label(self.win, bg="#dddddd")
+        self.img_label.pack(padx=10, pady=6)
 
         self.coord = tk.Label(
             self.win,
-            text=u"마우스: (-, -)  |  부모니터에서 클릭",
+            text=u"마우스: (-, -)",
             font=("Consolas", 10),
             bg="#fff8e1",
             fg="#1565c0",
         )
-        self.coord.pack(anchor="w", padx=12, pady=4)
+        self.coord.pack(anchor="w", padx=10)
 
         self.status = tk.Label(
             self.win,
-            text=u"대기 중… SAP(부모니터)에서 목표를 클릭하세요",
+            text=u"대기 중… 부모니터 SAP에서 빨간 점 위치를 클릭",
             font=("Malgun Gothic", 10, "bold"),
             bg="#fff8e1",
             fg="#0d47a1",
         )
-        self.status.pack(anchor="w", padx=12, pady=(2, 10))
+        self.status.pack(anchor="w", padx=10, pady=(2, 8))
 
-        tip = tk.Label(
-            self.win,
-            text=u"※ 이 노란 창은 주모니터 전용입니다. SAP 위로 옮기지 마세요.",
-            font=("Malgun Gothic", 9),
-            bg="#fff8e1",
-            fg="#666",
-        )
-        tip.pack(anchor="w", padx=12, pady=(0, 8))
-
-        self.cross = Crosshair(self.parent)
-        self._tick_crosshair()
+        self._show_guide(STEPS[0][3])
+        self.marker = MouseMarker(self.parent)
+        self._tick_marker()
         threading.Thread(target=self._run, daemon=True).start()
 
-    def _tick_crosshair(self):
+    def _show_guide(self, filename):
+        path = os.path.join(guide_images_dir(), filename)
+        if not os.path.isfile(path):
+            self.img_label.config(
+                image="",
+                text=u"그림 없음: {0}\n(make_guide_images.py 실행 필요)".format(filename),
+            )
+            self._photo = None
+            return
+        try:
+            img = Image.open(path)
+            max_w = 450
+            if img.width > max_w:
+                ratio = float(max_w) / float(img.width)
+                resample = Image.LANCZOS if hasattr(Image, "LANCZOS") else Image.ANTIALIAS
+                img = img.resize(
+                    (max_w, max(1, int(img.height * ratio))),
+                    resample,
+                )
+            self._photo = ImageTk.PhotoImage(img)
+            self.img_label.config(image=self._photo, text="")
+        except Exception as e:
+            self.img_label.config(image="", text=u"그림 오류: {0}".format(e))
+            self._photo = None
+
+    def _tick_marker(self):
         if self._stop or self.win is None:
             return
         try:
             x, y = pyautogui.position()
-            if self.cross:
-                self.cross.move_to(x, y)
+            if self.marker:
+                self.marker.move_to(x, y)
             on_pri = is_on_primary(x, y, self.monitors)
-            where = u"주모니터(클릭무시)" if on_pri else u"부모니터(클릭가능)"
+            where = u"주모니터(무시)" if on_pri else u"부모니터(OK)"
             self.coord.config(text=u"마우스: ({0}, {1})  |  {2}".format(x, y, where))
         except Exception:
             pass
         try:
-            self.win.after(30, self._tick_crosshair)
+            self.win.after(30, self._tick_marker)
         except Exception:
             pass
 
@@ -279,7 +256,6 @@ class CalibrateWizard(object):
         return bool(ctypes.windll.user32.GetAsyncKeyState(0x1B) & 0x8000)
 
     def _wait_click_on_sap(self):
-        """부모니터(비주모니터) 클릭만 인정. 싱글모니터면 모든 클릭 인정."""
         import ctypes
 
         VK_LBUTTON = 0x01
@@ -295,11 +271,10 @@ class CalibrateWizard(object):
                     time.sleep(0.02)
                 x, y = pyautogui.position()
                 if has_secondary and is_on_primary(x, y, self.monitors):
-                    # 주모니터 클릭 무시
                     self.win.after(
                         0,
                         lambda: self.status.config(
-                            text=u"주모니터 클릭은 무시됩니다. SAP(부모니터)에서 클릭!",
+                            text=u"주모니터 클릭 무시 — SAP(부모니터)에서 클릭!",
                             fg="#c62828",
                         ),
                     )
@@ -312,15 +287,16 @@ class CalibrateWizard(object):
 
     def _run(self):
         try:
-            for key, title, detail in STEPS:
+            for key, title, detail, guide in STEPS:
                 if self._stop:
                     break
 
-                def _update(t=title, d=detail):
+                def _update(t=title, d=detail, g=guide):
                     self.title_lbl.config(text=t)
                     self.detail.config(text=d)
+                    self._show_guide(g)
                     self.status.config(
-                        text=u"대기 중… SAP(부모니터)에서 목표를 클릭하세요",
+                        text=u"대기 중… 부모니터 SAP에서 빨간 점 위치를 클릭",
                         fg="#0d47a1",
                     )
 
@@ -376,7 +352,7 @@ class CalibrateWizard(object):
                 0,
                 lambda: messagebox.showinfo(
                     u"보정 완료",
-                    u"저장됨.\n행높이={0}, 예상행수={1}\n이제 [동기화 실행]을 누르세요.".format(
+                    u"저장됨. 행높이={0}, 예상행수={1}".format(
                         sap["row_height"], sap["visible_rows"]
                     ),
                     parent=self.parent,
@@ -398,9 +374,9 @@ class CalibrateWizard(object):
     def _close(self):
         self._stop = True
         try:
-            if self.cross:
-                self.cross.destroy()
-                self.cross = None
+            if self.marker:
+                self.marker.destroy()
+                self.marker = None
         except Exception:
             pass
         try:
