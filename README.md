@@ -1,24 +1,15 @@
 # 웅이전용 — SAP–엑셀 구매오더 수량 동기화
 
-## 다른 PC (Python 없음)
+## 모니터
+- **부모니터**: SAP「구매오더 생성」
+- **주모니터**: `웅이전용.exe` (보정 안내도 여기만 — SAP를 가리지 않음)
 
-1. [Releases](https://github.com/knight006800-design/sap-excel-po-sync/releases) 에서 **웅이전용-windows.zip** 다운로드  
-2. 압축 해제 후 **`웅이전용.exe`** 실행  
-3. **Microsoft Excel** + [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) 만 있으면 됩니다
+## 다운로드 (Python 없음)
+https://github.com/knight006800-design/sap-excel-po-sync/releases  
+→ `woongyi-windows.zip` → `웅이전용.exe`
 
-## 기능
+필요: Microsoft Excel + [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki)
 
-- 엑셀 B열 자재코드 ↔ SAP 자재코드 매칭
-- 엑셀 D열 수량 → SAP 오더수량 입력
-- SAP에 없으면 엑셀 B열 음영 / 수량 같으면 D열 노란색
-- 보정 시 **안내 그림** 표시
-- 로그는 **`구동점검` 폴더**에 모음
-
-## 개발
-
-```bash
-pip install -r requirements.txt
-python copy_guides.py
-python main.py
-build_exe.bat
-```
+## 보정
+빨간 십자선(+)으로 위치를 맞춥니다. 참조 그림 없음.
+주모니터 클릭은 무시, 부모니터(SAP) 클릭만 기록.

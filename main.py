@@ -16,6 +16,7 @@ except ImportError:
     import ScrolledText as scrolledtext
 
 from calibrate import CalibrateWizard
+from monitors import place_window_on_primary
 from paths_util import app_dir, drive_check_dir, load_config, save_config
 from sync_engine import SyncEngine
 
@@ -24,8 +25,8 @@ class App(object):
     def __init__(self):
         self.root = tk.Tk()
         self.root.title(u"웅이전용 — 구매오더 수량 동기화 (SAP ↔ Excel)")
-        self.root.geometry("720x520")
         self.root.minsize(640, 440)
+        place_window_on_primary(self.root, width=720, height=520, margin=40)
 
         self.cfg = load_config()
         self._stop = False
@@ -68,9 +69,9 @@ class App(object):
 
         tk.Label(
             frm,
-            text=u"실행 전: 좌측 모니터에 SAP「구매오더 생성」을 띄우고 자재코드가 전부 보이게 하세요.\n"
-            u"실행 중 마우스/키보드를 만지지 마세요. 긴급중지=ESC.\n"
-            u"로그/캡처는 「구동점검」폴더에 저장됩니다.",
+            text=u"배치: 부모니터=SAP「구매오더 생성」 / 주모니터=이 프로그램(안내창).\n"
+            u"보정 안내는 주모니터에만 뜨며 SAP를 가리지 않습니다. 빨간 십자선(+)으로 위치를 맞추세요.\n"
+            u"실행 중 마우스 금지 · ESC 중지 · 로그는 「구동점검」폴더.",
             justify="left",
             fg="#333",
         ).pack(anchor="w", pady=4)

@@ -16,22 +16,6 @@ def app_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
-def resource_dir():
-    """가이드 이미지 등 번들 리소스 폴더 (exe 빌드 시 _MEIPASS)."""
-    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        return sys._MEIPASS
-    return app_dir()
-
-
-def guide_images_dir():
-    """우선 실행폴더/guide_images, 없으면 번들 리소스."""
-    local = os.path.join(app_dir(), "guide_images")
-    if os.path.isdir(local):
-        return local
-    bundled = os.path.join(resource_dir(), "guide_images")
-    return bundled
-
-
 def drive_check_dir():
     """구동점검 전용 폴더 — 로그/캡처를 여기에 모음."""
     path = os.path.join(app_dir(), u"구동점검")
