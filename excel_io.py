@@ -155,7 +155,11 @@ class ExcelWorkbook(object):
         self._excel.DisplayAlerts = False
         self._excel.Visible = bool(visible)
         try:
-            self._excel.ScreenUpdating = bool(visible)
+            self._excel.ScreenUpdating = False
+            self._excel.EnableEvents = False
+            self._excel.AskToUpdateLinks = False
+            # xlCalculationManual = -4135
+            self._excel.Calculation = -4135
         except Exception:
             pass
 
@@ -166,20 +170,47 @@ class ExcelWorkbook(object):
         self._ws = self._wb.Worksheets(1)
 
     def load_rows(self):
+        """UsedRange 일괄 조회로 셀 단위 COM 왕복 제거."""
         self.rows = []
         used = self._ws.UsedRange
-        max_row = used.Row + used.Rows.Count - 1
-        self._max_col = max(1, used.Column + used.Columns.Count - 1)
-        for r in range(2, max_row + 1):
-            code_raw = self._ws.Cells(r, 2).Value
-            qty_raw = self._ws.Cells(r, 4).Value
+        start_row = int(used.Row)
+        start_col = int(used.Column)
+        n_rows = int(used.Rows.Count)
+        n_cols = int(used.Columns.Count)
+        self._max_col = max(1, start_col + n_cols - 1)
+
+        values = used.Value
+        if values is None:
+            self._log(u"엑셀 데이터 행 수: 0")
+            return self.rows
+
+        # 단일 셀이면 스칼라
+        if not isinstance(values, tuple):
+            values = ((values,),)
+        elif values and not isinstance(values[0], tuple):
+            values = (values,)
+
+        def cell_at(row_tuple, sheet_col):
+            idx = sheet_col - start_col
+            if idx < 0 or idx >= len(row_tuple):
+                return None
+            return row_tuple[idx]
+
+        for i, row_vals in enumerate(values):
+            sheet_row = start_row + i
+            if sheet_row < 2:
+                continue
+            if not isinstance(row_vals, tuple):
+                row_vals = (row_vals,)
+            code_raw = cell_at(row_vals, 2)  # B열
             code = normalize_code(code_raw)
             if not code:
                 continue
+            qty_raw = cell_at(row_vals, 4)  # D열
             qty = normalize_qty(qty_raw)
             self.rows.append(
                 {
-                    "row": r,
+                    "row": sheet_row,
                     "code": code,
                     "code_display": str(code_raw).strip()
                     if code_raw is not None
@@ -224,26 +255,50 @@ class ExcelWorkbook(object):
         new_wb = self._excel.Workbooks.Add()
         new_ws = new_wb.Worksheets(1)
 
-        self._ws.Rows(1).Copy()
-        new_ws.Rows(1).PasteSpecial(Paste=-4104)  # xlPasteAll
+        self._ws.Rows(1).Copy(new_ws.Rows(1))
         try:
             self._excel.CutCopyMode = False
         except Exception:
             pass
+
+        # 연속 행은 블록으로 한 번에 복사 (COM 왕복 대폭 감소)
+        groups = []
+        start = prev = row_nums[0]
+        for r in row_nums[1:]:
+            if r == prev + 1:
+                prev = r
+            else:
+                groups.append((start, prev))
+                start = prev = r
+        groups.append((start, prev))
 
         dest = 2
-        for r in row_nums:
-            self._ws.Rows(r).Copy()
-            new_ws.Rows(dest).PasteSpecial(Paste=-4104)
-            dest += 1
+        for a, b in groups:
+            count = b - a + 1
+            src = self._ws.Range(self._ws.Rows(a), self._ws.Rows(b))
+            src.Copy(new_ws.Rows(dest))
+            dest += count
         try:
             self._excel.CutCopyMode = False
         except Exception:
             pass
 
         try:
-            for c in range(1, self._max_col + 1):
-                new_ws.Columns(c).ColumnWidth = self._ws.Columns(c).ColumnWidth
+            # 열 너비도 일괄
+            if self._max_col >= 1:
+                src_w = self._ws.Range(
+                    self._ws.Columns(1), self._ws.Columns(self._max_col)
+                ).ColumnWidth
+                # ColumnWidth 배열/스칼라 모두 대응
+                if isinstance(src_w, tuple):
+                    for c, w in enumerate(src_w, start=1):
+                        try:
+                            new_ws.Columns(c).ColumnWidth = w[0] if isinstance(w, tuple) else w
+                        except Exception:
+                            pass
+                else:
+                    for c in range(1, self._max_col + 1):
+                        new_ws.Columns(c).ColumnWidth = self._ws.Columns(c).ColumnWidth
         except Exception:
             pass
 

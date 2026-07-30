@@ -28,40 +28,166 @@ def today_unmatched_filename():
     return datetime.now().strftime("%Y%m%d_")
 
 
+# White-first palette — flat surfaces, hairline borders, no gradients
 C = {
-    "bg": "#F4F5F7",
+    "bg": "#F6F6F7",
     "surface": "#FFFFFF",
-    "border": "#E2E4E8",
-    "text": "#1A1D23",
-    "muted": "#6B7280",
-    "accent": "#2563EB",
+    "surface_soft": "#FAFAFA",
+    "border": "#E6E6E8",
+    "border_strong": "#D4D4D8",
+    "text": "#111113",
+    "muted": "#73737A",
+    "label": "#52525B",
+    "accent": "#111113",
+    "accent_hover": "#2A2A2E",
+    "accent_press": "#000000",
     "accent_fg": "#FFFFFF",
-    "danger": "#DC2626",
-    "danger_bg": "#FEF2F2",
+    "accent_disabled": "#A1A1AA",
+    "ghost_bg": "#FFFFFF",
+    "ghost_press": "#F0F0F2",
     "input_bg": "#FFFFFF",
-    "result_bg": "#ECFDF5",
-    "err_bg": "#FBBF24",
-    "err_fg": "#111827",
-    "sel_bg": "#1D4ED8",
+    "result_bg": "#F7FAF8",
+    "err_bg": "#FEF3C7",
+    "err_fg": "#78350F",
+    "sel_bg": "#111113",
     "sel_fg": "#FFFFFF",
+    "divider": "#ECECEE",
+    "status_ok": "#166534",
+    "status_err": "#B45309",
 }
 
 FONT = ("Segoe UI", 10)
+FONT_SM = ("Segoe UI", 9)
 FONT_B = ("Segoe UI", 10, "bold")
-FONT_H = ("Segoe UI", 15, "bold")
+FONT_LABEL = ("Segoe UI", 9)
+FONT_BRAND = ("Segoe UI", 14, "bold")
+FONT_CTA = ("Segoe UI", 11, "bold")
 FONT_MONO = ("Consolas", 10)
+
+
+class PressButton(tk.Frame):
+    """물리적으로 눌리는 느낌이 나는 flat CTA / ghost 버튼."""
+
+    def __init__(
+        self,
+        parent,
+        text,
+        command=None,
+        primary=False,
+        padx=18,
+        pady=8,
+        **kwargs
+    ):
+        tk.Frame.__init__(self, parent, bg=parent.cget("bg"), **kwargs)
+        self._command = command
+        self._primary = primary
+        self._enabled = True
+        self._pressed = False
+        self._text = text
+
+        if primary:
+            self._bg = C["accent"]
+            self._fg = C["accent_fg"]
+            self._hover = C["accent_hover"]
+            self._press = C["accent_press"]
+            self._disabled_bg = C["accent_disabled"]
+            self._disabled_fg = C["accent_fg"]
+            font = FONT_CTA
+        else:
+            self._bg = C["ghost_bg"]
+            self._fg = C["text"]
+            self._hover = C["surface_soft"]
+            self._press = C["ghost_press"]
+            self._disabled_bg = C["surface_soft"]
+            self._disabled_fg = C["muted"]
+            font = FONT
+
+        border = C["border_strong"] if not primary else C["accent"]
+        self._shell = tk.Frame(self, bg=border, bd=0, highlightthickness=0)
+        self._shell.pack(fill="both", expand=True)
+        self._inner = tk.Frame(self._shell, bg=self._bg, bd=0, highlightthickness=0)
+        self._inner.pack(fill="both", expand=True, padx=1, pady=1)
+        self._label = tk.Label(
+            self._inner,
+            text=text,
+            bg=self._bg,
+            fg=self._fg,
+            font=font,
+            cursor="hand2",
+            padx=padx,
+            pady=pady,
+        )
+        self._label.pack()
+
+        for w in (self._shell, self._inner, self._label):
+            w.bind("<Enter>", self._on_enter)
+            w.bind("<Leave>", self._on_leave)
+            w.bind("<ButtonPress-1>", self._on_press)
+            w.bind("<ButtonRelease-1>", self._on_release)
+
+    def configure_text(self, text):
+        self._text = text
+        self._label.configure(text=text)
+
+    def set_enabled(self, enabled):
+        self._enabled = bool(enabled)
+        if self._enabled:
+            self._apply_colors(self._bg, self._fg)
+            self._label.configure(cursor="hand2")
+        else:
+            self._apply_colors(self._disabled_bg, self._disabled_fg)
+            self._label.configure(cursor="arrow")
+            self._pressed = False
+            self._inner.pack_configure(padx=1, pady=1)
+
+    def _apply_colors(self, bg, fg):
+        self._inner.configure(bg=bg)
+        self._label.configure(bg=bg, fg=fg)
+        if self._primary and self._enabled:
+            self._shell.configure(bg=bg)
+        elif self._primary and not self._enabled:
+            self._shell.configure(bg=self._disabled_bg)
+
+    def _on_enter(self, _event=None):
+        if not self._enabled or self._pressed:
+            return
+        self._apply_colors(self._hover, self._fg)
+
+    def _on_leave(self, _event=None):
+        if not self._enabled:
+            return
+        self._pressed = False
+        self._inner.pack_configure(padx=1, pady=1)
+        self._apply_colors(self._bg, self._fg)
+
+    def _on_press(self, _event=None):
+        if not self._enabled:
+            return
+        self._pressed = True
+        # 1px 아래로 밀려 물리적으로 눌리는 느낌
+        self._inner.pack_configure(padx=1, pady=(2, 0))
+        self._apply_colors(self._press, self._fg)
+
+    def _on_release(self, _event=None):
+        if not self._enabled:
+            return
+        was = self._pressed
+        self._pressed = False
+        self._inner.pack_configure(padx=1, pady=1)
+        self._apply_colors(self._hover, self._fg)
+        if was and self._command:
+            self._command()
 
 
 class App(object):
     def __init__(self):
         self.root = tk.Tk()
         self.root.title(u"웅이 자재 발주 프로그램")
-        self.root.minsize(560, 480)
+        self.root.minsize(600, 520)
         self.root.configure(bg=C["bg"])
-        place_window_on_primary(self.root, width=640, height=560, margin=28, center=True)
+        place_window_on_primary(self.root, width=680, height=580, margin=28, center=True)
 
         self.cfg = load_config()
-        self._stop = False
         self._running = False
 
         self._setup_style()
@@ -79,13 +205,10 @@ class App(object):
             "Card.TLabel", background=C["surface"], foreground=C["text"], font=FONT
         )
         style.configure(
-            "CardMuted.TLabel",
-            background=C["surface"],
+            "Muted.TLabel",
+            background=C["bg"],
             foreground=C["muted"],
-            font=("Segoe UI", 9),
-        )
-        style.configure(
-            "Title.TLabel", background=C["bg"], foreground=C["text"], font=FONT_H
+            font=FONT_SM,
         )
         style.configure(
             "Section.TLabel",
@@ -94,43 +217,29 @@ class App(object):
             font=FONT_B,
         )
         style.configure(
+            "Field.TLabel",
+            background=C["surface"],
+            foreground=C["label"],
+            font=FONT_LABEL,
+        )
+        style.configure(
             "TEntry",
             fieldbackground=C["input_bg"],
             foreground=C["text"],
             insertcolor=C["text"],
-            padding=5,
-        )
-        style.configure(
-            "Primary.TButton",
-            background=C["accent"],
-            foreground=C["accent_fg"],
-            font=FONT_B,
-            padding=(14, 6),
-            borderwidth=0,
+            padding=6,
+            bordercolor=C["border"],
+            lightcolor=C["border"],
+            darkcolor=C["border"],
         )
         style.map(
-            "Primary.TButton",
-            background=[("active", "#1D4ED8"), ("disabled", "#93C5FD")],
-        )
-        style.configure(
-            "Ghost.TButton",
-            background=C["surface"],
-            foreground=C["text"],
-            font=FONT,
-            padding=(10, 5),
-            borderwidth=1,
-        )
-        style.map("Ghost.TButton", background=[("active", C["border"])])
-        style.configure(
-            "Danger.TButton",
-            background=C["danger_bg"],
-            foreground=C["danger"],
-            font=FONT,
-            padding=(10, 5),
-            borderwidth=0,
+            "TEntry",
+            bordercolor=[("focus", C["text"])],
+            lightcolor=[("focus", C["text"])],
+            darkcolor=[("focus", C["text"])],
         )
 
-    def _card(self, parent, padx=12, pady=8):
+    def _surface(self, parent, padx=14, pady=12):
         outer = tk.Frame(parent, bg=C["border"], bd=0, highlightthickness=0)
         inner = tk.Frame(outer, bg=C["surface"], bd=0, highlightthickness=0)
         inner.pack(fill="both", expand=True, padx=1, pady=1)
@@ -152,21 +261,20 @@ class App(object):
             relief="flat",
             highlightthickness=1,
             highlightbackground=C["border"],
-            highlightcolor=C["accent"],
+            highlightcolor=C["text"],
             bd=0,
-            padx=8,
-            pady=4,
-            spacing1=1,
+            padx=10,
+            pady=6,
+            spacing1=0,
             spacing2=0,
-            spacing3=2,
+            spacing3=1,
         )
         try:
             box.configure(inactiveselectbackground=C["sel_bg"])
         except tk.TclError:
             pass
-        # 줄 구분: 선명한 얇은 실선
         try:
-            box.tag_configure("rowline", underline=True, underlinefg="#64748B")
+            box.tag_configure("rowline", underline=True, underlinefg="#C4C4C8")
         except tk.TclError:
             box.tag_configure("rowline", underline=True)
         box.bind("<<Modified>>", lambda e, b=box: self._on_box_modified(b))
@@ -175,7 +283,6 @@ class App(object):
         return box
 
     def _select_content(self, box):
-        """맨 아래 빈 줄 없이 내용만 전체 선택."""
         text = box.get("1.0", "end-1c").rstrip("\r\n")
         box.tag_remove("sel", "1.0", "end")
         if text:
@@ -192,7 +299,6 @@ class App(object):
             pass
 
     def _apply_row_lines(self, box):
-        """각 줄 아래 얇은 구분선 태그 적용 (빈 줄 제외)."""
         try:
             box.tag_remove("rowline", "1.0", "end")
             last = int(float(box.index("end-1c").split(".")[0]))
@@ -211,63 +317,107 @@ class App(object):
             pass
 
     def _build(self):
-        wrap = ttk.Frame(self.root, style="TFrame")
-        wrap.pack(fill="both", expand=True, padx=16, pady=10)
+        wrap = tk.Frame(self.root, bg=C["bg"])
+        wrap.pack(fill="both", expand=True, padx=20, pady=16)
 
-        # 파일 → 그 아래 발주 저장위치 (세로 배치)
-        excel_card, excel = self._card(wrap, padx=10, pady=6)
-        excel_card.pack(fill="x", pady=(0, 6))
-        ttk.Label(excel, text=u"파일", style="Section.TLabel").pack(anchor="w")
-        row = tk.Frame(excel, bg=C["surface"])
-        row.pack(fill="x", pady=(4, 0))
-        self.excel_var = tk.StringVar(value=self.cfg.get("excel_path") or "")
-        ttk.Entry(row, textvariable=self.excel_var).pack(
-            side="left", fill="x", expand=True, ipady=2
+        # Brand
+        brand = tk.Frame(wrap, bg=C["bg"])
+        brand.pack(fill="x", pady=(0, 12))
+        tk.Label(
+            brand,
+            text=u"웅이 자재 발주",
+            bg=C["bg"],
+            fg=C["text"],
+            font=FONT_BRAND,
+        ).pack(side="left")
+        self.status_var = tk.StringVar(value=u"")
+        self.status_label = tk.Label(
+            brand,
+            textvariable=self.status_var,
+            bg=C["bg"],
+            fg=C["muted"],
+            font=FONT_SM,
         )
-        ttk.Button(
-            row, text=u"경로", style="Ghost.TButton", command=self.browse_excel
-        ).pack(side="left", padx=(6, 0))
+        self.status_label.pack(side="right")
 
-        um_card, um = self._card(wrap, padx=10, pady=6)
-        um_card.pack(fill="x", pady=(0, 6))
-        ttk.Label(um, text=u"발주 파일 저장위치", style="Section.TLabel").pack(
+        # Settings surface
+        settings, body = self._surface(wrap, padx=14, pady=12)
+        settings.pack(fill="x", pady=(0, 10))
+
+        # File row
+        tk.Label(body, text=u"파일", bg=C["surface"], fg=C["label"], font=FONT_LABEL).pack(
             anchor="w"
         )
-        dir_row = tk.Frame(um, bg=C["surface"])
-        dir_row.pack(fill="x", pady=(4, 4))
-        ttk.Label(dir_row, text=u"폴더", style="Card.TLabel", width=5).pack(side="left")
+        file_row = tk.Frame(body, bg=C["surface"])
+        file_row.pack(fill="x", pady=(4, 10))
+        self.excel_var = tk.StringVar(value=self.cfg.get("excel_path") or "")
+        ttk.Entry(file_row, textvariable=self.excel_var).pack(
+            side="left", fill="x", expand=True, ipady=3
+        )
+        PressButton(
+            file_row, text=u"경로", command=self.browse_excel, padx=12, pady=5
+        ).pack(side="left", padx=(8, 0))
+
+        # Thin divider
+        tk.Frame(body, bg=C["divider"], height=1).pack(fill="x", pady=(0, 10))
+
+        # Save location
+        tk.Label(
+            body,
+            text=u"발주 파일 저장위치",
+            bg=C["surface"],
+            fg=C["label"],
+            font=FONT_LABEL,
+        ).pack(anchor="w")
+
+        dir_row = tk.Frame(body, bg=C["surface"])
+        dir_row.pack(fill="x", pady=(4, 6))
+        tk.Label(
+            dir_row, text=u"폴더", bg=C["surface"], fg=C["muted"], font=FONT_SM, width=5
+        ).pack(side="left")
         self.unmatched_dir_var = tk.StringVar(value=self.cfg.get("unmatched_dir") or "")
         ttk.Entry(dir_row, textvariable=self.unmatched_dir_var).pack(
-            side="left", fill="x", expand=True, ipady=2
+            side="left", fill="x", expand=True, ipady=3
         )
-        ttk.Button(
+        PressButton(
             dir_row,
             text=u"지정",
-            style="Ghost.TButton",
             command=self.browse_unmatched_dir,
-        ).pack(side="left", padx=(6, 0))
-        name_row = tk.Frame(um, bg=C["surface"])
+            padx=12,
+            pady=5,
+        ).pack(side="left", padx=(8, 0))
+
+        name_row = tk.Frame(body, bg=C["surface"])
         name_row.pack(fill="x")
-        ttk.Label(name_row, text=u"파일명", style="Card.TLabel", width=5).pack(
-            side="left"
-        )
+        tk.Label(
+            name_row,
+            text=u"파일명",
+            bg=C["surface"],
+            fg=C["muted"],
+            font=FONT_SM,
+            width=5,
+        ).pack(side="left")
         self.unmatched_name_var = tk.StringVar(value=today_unmatched_filename())
         ttk.Entry(name_row, textvariable=self.unmatched_name_var).pack(
-            side="left", fill="x", expand=True, ipady=2
+            side="left", fill="x", expand=True, ipady=3
         )
 
-        # 추출을 맨 오른쪽, 중지는 그 왼쪽
+        # Action — extract only, right aligned
         act = tk.Frame(wrap, bg=C["bg"])
-        act.pack(fill="x", pady=(0, 6))
-        ttk.Button(
-            act, text=u"추출", style="Primary.TButton", command=self.do_run
-        ).pack(side="right")
-        ttk.Button(act, text=u"중지", style="Danger.TButton", command=self.do_stop).pack(
-            side="right", padx=(0, 8)
+        act.pack(fill="x", pady=(0, 10))
+        self.extract_btn = PressButton(
+            act,
+            text=u"추출",
+            command=self.do_run,
+            primary=True,
+            padx=28,
+            pady=9,
         )
+        self.extract_btn.pack(side="right")
 
+        # Main panes 2:1
         paste_wrap = tk.Frame(wrap, bg=C["bg"])
-        paste_wrap.pack(fill="both", expand=True, anchor="w")
+        paste_wrap.pack(fill="both", expand=True)
         paste_wrap.columnconfigure(0, weight=2, uniform="paste")
         paste_wrap.columnconfigure(1, weight=1, uniform="paste")
         paste_wrap.rowconfigure(0, weight=1)
@@ -279,19 +429,15 @@ class App(object):
             self.code_title_var,
             u"비우기",
             self.clear_codes,
-            padx=(0, 5),
+            padx=(0, 6),
             title_is_var=True,
             box_width=36,
         )
         self.code_box.tag_configure(
-            "err",
-            background=C["err_bg"],
-            foreground=C["err_fg"],
+            "err", background=C["err_bg"], foreground=C["err_fg"]
         )
         self.code_box.tag_configure(
-            "err_sel",
-            background=C["sel_bg"],
-            foreground=C["sel_fg"],
+            "err_sel", background=C["sel_bg"], foreground=C["sel_fg"]
         )
 
         self.result_box = self._make_col(
@@ -300,7 +446,7 @@ class App(object):
             u"오더수량",
             u"전체선택",
             self.select_result,
-            padx=(5, 0),
+            padx=(6, 0),
             bg=C["result_bg"],
             box_width=18,
         )
@@ -317,32 +463,58 @@ class App(object):
         title_is_var=False,
         box_width=28,
     ):
-        card, body = self._card(parent, padx=10, pady=6)
+        card, body = self._surface(parent, padx=12, pady=10)
         card.grid(row=0, column=col, sticky="nsew", padx=padx)
         hdr = tk.Frame(body, bg=C["surface"])
         hdr.pack(fill="x")
-        # 버튼을 먼저 pack해 좁은 칸에서도 글자가 안 잘리게
         if btn_text and btn_cmd:
-            ttk.Button(
-                hdr, text=btn_text, style="Ghost.TButton", command=btn_cmd
+            PressButton(
+                hdr, text=btn_text, command=btn_cmd, padx=10, pady=3
             ).pack(side="right")
         if title_is_var:
-            ttk.Label(hdr, textvariable=title, style="Section.TLabel").pack(
-                side="left", fill="x", expand=True
-            )
+            tk.Label(
+                hdr,
+                textvariable=title,
+                bg=C["surface"],
+                fg=C["text"],
+                font=FONT_B,
+            ).pack(side="left", fill="x", expand=True)
         else:
-            ttk.Label(hdr, text=title, style="Section.TLabel").pack(
-                side="left", fill="x", expand=True
-            )
+            tk.Label(
+                hdr, text=title, bg=C["surface"], fg=C["text"], font=FONT_B
+            ).pack(side="left", fill="x", expand=True)
         box = self._text_box(body, bg=bg, width=box_width)
-        box.pack(fill="both", expand=True, pady=(4, 0))
+        box.pack(fill="both", expand=True, pady=(8, 0))
         return box
+
+    def _set_status(self, text, kind=u"muted"):
+        colors = {
+            u"muted": C["muted"],
+            u"ok": C["status_ok"],
+            u"err": C["status_err"],
+            u"busy": C["text"],
+        }
+        self.status_var.set(text or u"")
+        self.status_label.configure(fg=colors.get(kind, C["muted"]))
+
+    def _set_running(self, running):
+        self._running = running
+        if running:
+            self.extract_btn.configure_text(u"추출 중…")
+            self.extract_btn.set_enabled(False)
+            self._set_status(u"처리 중", u"busy")
+            self.root.configure(cursor="watch")
+        else:
+            self.extract_btn.configure_text(u"추출")
+            self.extract_btn.set_enabled(True)
+            self.root.configure(cursor="")
 
     def clear_codes(self):
         self.code_box.tag_remove("err", "1.0", "end")
         self.code_box.delete("1.0", "end")
         self.code_title_var.set(u"SAP 자재코드")
         self._apply_row_lines(self.code_box)
+        self._set_status(u"")
 
     def select_result(self):
         text = self.result_box.get("1.0", "end-1c").rstrip("\r\n")
@@ -385,9 +557,12 @@ class App(object):
                 displays.append(code)
 
         if err_count > 0:
-            self.code_title_var.set(u"SAP 자재코드  오류 {0}개".format(err_count))
+            self.code_title_var.set(u"SAP 자재코드  ·  오류 {0}개".format(err_count))
+            self._set_status(u"오류 {0}개".format(err_count), u"err")
         else:
             self.code_title_var.set(u"SAP 자재코드")
+            matched = int(stats.get("matched") or 0)
+            self._set_status(u"완료  ·  {0}건".format(matched), u"ok")
 
         if displays:
             self.code_box.insert("1.0", u"\n".join(displays))
@@ -449,9 +624,6 @@ class App(object):
             name = base + ext
         return os.path.join(folder, name)
 
-    def do_stop(self):
-        self._stop = True
-
     def _box_text(self, box):
         raw = box.get("1.0", "end")
         lines = []
@@ -459,6 +631,9 @@ class App(object):
             s = line.strip()
             if not s or s.startswith("#"):
                 continue
+            # 유사품번 안내 줄이면 코드만 재사용
+            if u"→" in s:
+                s = s.split(u"→", 1)[0].strip()
             lines.append(s)
         return u"\n".join(lines)
 
@@ -483,8 +658,7 @@ class App(object):
         self._save_unmatched_settings()
         unmatched_path = self._resolve_unmatched_path(path)
 
-        self._stop = False
-        self._running = True
+        self._set_running(True)
         threading.Thread(
             target=self._run_thread,
             args=(path, codes, unmatched_path),
@@ -494,11 +668,7 @@ class App(object):
     def _run_thread(self, path, codes, unmatched_path):
         logger = DriveCheckLog(gui_callback=None)
         try:
-            engine = SyncEngine(
-                config=load_config(),
-                logger=logger,
-                stop_flag=lambda: self._stop,
-            )
+            engine = SyncEngine(config=load_config(), logger=logger)
             stats = engine.run(
                 excel_path=path,
                 codes_text=codes,
@@ -513,8 +683,9 @@ class App(object):
             self.root.after(
                 0, lambda: messagebox.showerror(u"오류", u"{0}".format(e))
             )
+            self.root.after(0, lambda: self._set_status(u"실패", u"err"))
         finally:
-            self._running = False
+            self.root.after(0, lambda: self._set_running(False))
 
     def _finish_dialog(self, stats):
         count = int(stats.get("missing_count") or 0)
@@ -523,7 +694,6 @@ class App(object):
                 u"오류",
                 u"SAP 자재코드 오류 : {0}개".format(count),
             )
-            return
 
     def run(self):
         self.root.mainloop()

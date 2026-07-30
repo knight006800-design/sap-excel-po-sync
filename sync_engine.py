@@ -16,38 +16,44 @@ SIMILAR_THRESHOLD = 0.70
 
 
 def find_similar_codes(code, candidates, threshold=SIMILAR_THRESHOLD, limit=1):
-    """유사 엑셀 코드 제안 (가장 높은 1개 기본). 1글자 휴먼에러도 잡도록 70%+."""
-    if not code:
+    """유사 엑셀 코드 1건. 길이 필터로 SequenceMatcher 호출을 줄임."""
+    if not code or not candidates:
         return []
-    scored = []
+    clen = len(code)
+    # 길이 차이가 크면 1글자 휴먼에러 후보가 아님
+    max_delta = 2 if clen <= 12 else max(2, clen // 5)
+    best_ratio = 0.0
+    best_code = None
     for c in candidates:
         if not c or c == code:
             continue
-        ratio = SequenceMatcher(None, code, c).ratio()
-        # 길이 비슷하고 거의 같으면 1글자 오타로 간주해 하한 완화
-        if ratio < threshold and abs(len(code) - len(c)) <= 1:
-            if ratio >= 0.60:
-                scored.append((ratio, c))
+        if abs(len(c) - clen) > max_delta:
+            continue
+        sm = SequenceMatcher(None, code, c)
+        if sm.quick_ratio() < 0.55:
+            continue
+        ratio = sm.ratio()
+        if ratio < threshold:
+            # 길이가 거의 같으면 1글자 오타 하한 완화
+            if abs(len(c) - clen) <= 1 and ratio >= 0.60:
+                pass
+            else:
                 continue
-        if ratio >= threshold:
-            scored.append((ratio, c))
-    scored.sort(key=lambda x: (-x[0], x[1]))
-    return scored[:limit]
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_code = c
+            if best_ratio >= 0.99:
+                break
+    if best_code is None:
+        return []
+    return [(best_ratio, best_code)][:limit]
 
 
 class SyncEngine(object):
     def __init__(self, config, logger, stop_flag=None):
         self.config = config
         self.logger = logger
-        self.stop_flag = stop_flag
-
-    def _stopped(self):
-        if self.stop_flag is not None:
-            try:
-                return bool(self.stop_flag())
-            except Exception:
-                return False
-        return False
+        self.stop_flag = stop_flag  # 호환용 (UI 중지 제거)
 
     def run(self, excel_path, codes_text, unmatched_path=None):
         sap_codes = parse_pasted_sap_codes(codes_text)
@@ -86,11 +92,10 @@ class SyncEngine(object):
             matched = 0
             missing_in_excel = []
             no_qty = []
+            # 유사도 계산은 오류 코드에만, 동일 코드는 캐시
+            similar_cache = {}
 
-            for i, code in enumerate(sap_codes):
-                if self._stopped():
-                    self.logger.warn(u"사용자 중지")
-                    break
+            for code in sap_codes:
                 if not code:
                     result_rows.append(
                         {
@@ -105,7 +110,11 @@ class SyncEngine(object):
                     continue
 
                 if code not in excel_qty:
-                    suggestions = find_similar_codes(code, excel_codes)
+                    if code in similar_cache:
+                        suggestions = similar_cache[code]
+                    else:
+                        suggestions = find_similar_codes(code, excel_codes)
+                        similar_cache[code] = suggestions
                     missing_in_excel.append({"code": code, "suggestions": suggestions})
                     if suggestions:
                         best = suggestions[0]
@@ -166,27 +175,25 @@ class SyncEngine(object):
                     matched, len(missing_unique), len(unmatched_excel)
                 )
             )
-            for item in missing_unique:
+            # 개별 WARN은 상위 몇 건만 (파일 I/O 부담 감소)
+            for item in missing_unique[:20]:
                 c = item["code"]
                 sug = item.get("suggestions") or []
                 if sug:
-                    sug_txt = u", ".join(
-                        u"{0}({1}%)".format(s[1], int(round(s[0] * 100))) for s in sug
-                    )
                     self.logger.warn(
-                        u"SAP만 있음 [{0}] — 엑셀 코드기입 오류/휴먼에러. 유사 제안: {1}".format(
-                            c, sug_txt
+                        u"SAP만 있음 [{0}] — 유사: {1}({2}%)".format(
+                            c, sug[0][1], int(round(sug[0][0] * 100))
                         )
                     )
                 else:
-                    self.logger.warn(
-                        u"SAP만 있음 [{0}] — 엑셀 코드기입 오류/휴먼에러 (유사 코드 없음)".format(
-                            c
-                        )
-                    )
+                    self.logger.warn(u"SAP만 있음 [{0}]".format(c))
+            if len(missing_unique) > 20:
+                self.logger.warn(
+                    u"… 외 {0}건 생략".format(len(missing_unique) - 20)
+                )
 
             moved_path = None
-            if unmatched_excel and not self._stopped():
+            if unmatched_excel:
                 self.logger.info(u"SAP에 없는 엑셀 코드 → 새 파일 추출 (원본 유지)")
                 if unmatched_path:
                     self.logger.info(u"저장 위치: {0}".format(unmatched_path))

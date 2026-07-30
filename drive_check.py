@@ -21,7 +21,23 @@ class DriveCheckLog(object):
         self.path = os.path.join(self.base, self.FILENAME)
         self._backup_previous()
         self._lines = []
+        self._buf = []
         self._write_header()
+
+    def _flush(self):
+        if not self._buf:
+            return
+        chunk = u"\n".join(self._buf) + u"\n"
+        self._buf = []
+        try:
+            with open(self.path, "a", encoding="utf-8") as f:
+                f.write(chunk)
+        except Exception:
+            try:
+                with open(self.path, "a") as f:
+                    f.write(chunk.encode("utf-8"))
+            except Exception:
+                pass
 
     def _backup_previous(self):
         if os.path.isfile(self.path):
@@ -50,15 +66,10 @@ class DriveCheckLog(object):
         ts = datetime.now().strftime("%H:%M:%S")
         line = u"[{0}][{1}] {2}".format(ts, level, message)
         self._lines.append(line)
-        try:
-            with open(self.path, "a", encoding="utf-8") as f:
-                f.write(line + u"\n")
-        except Exception:
-            try:
-                with open(self.path, "a") as f:
-                    f.write(line.encode("utf-8") + b"\n")
-            except Exception:
-                pass
+        self._buf.append(line)
+        # 버퍼가 커지거나 ERROR면 즉시 기록
+        if level == u"ERROR" or len(self._buf) >= 24:
+            self._flush()
         if self.gui_callback:
             try:
                 self.gui_callback(line)
@@ -118,3 +129,4 @@ class DriveCheckLog(object):
         if summary:
             self.log(u"요약: {0}".format(summary))
         self.log(u"=" * 60)
+        self._flush()
