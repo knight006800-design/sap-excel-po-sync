@@ -15,17 +15,21 @@ from excel_io import (
 SIMILAR_THRESHOLD = 0.70
 
 
-def find_similar_codes(code, candidates, threshold=SIMILAR_THRESHOLD, limit=1):
-    """유사 엑셀 코드 1건. 길이 필터로 SequenceMatcher 호출을 줄임."""
+def find_similar_codes(
+    code, candidates, threshold=SIMILAR_THRESHOLD, limit=1, exclude=None
+):
+    """유사 엑셀 코드 1건. SAP에 이미 있는 품번은 후보에서 제외."""
     if not code or not candidates:
         return []
+    exclude_set = set(exclude or ())
+    exclude_set.add(code)
     clen = len(code)
     # 길이 차이가 크면 1글자 휴먼에러 후보가 아님
     max_delta = 2 if clen <= 12 else max(2, clen // 5)
     best_ratio = 0.0
     best_code = None
     for c in candidates:
-        if not c or c == code:
+        if not c or c in exclude_set:
             continue
         if abs(len(c) - clen) > max_delta:
             continue
@@ -113,7 +117,9 @@ class SyncEngine(object):
                     if code in similar_cache:
                         suggestions = similar_cache[code]
                     else:
-                        suggestions = find_similar_codes(code, excel_codes)
+                        suggestions = find_similar_codes(
+                            code, excel_codes, exclude=sap_code_set
+                        )
                         similar_cache[code] = suggestions
                     missing_in_excel.append({"code": code, "suggestions": suggestions})
                     if suggestions:
