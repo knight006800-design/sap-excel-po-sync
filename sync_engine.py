@@ -12,11 +12,11 @@ from excel_io import (
 )
 
 
-SIMILAR_THRESHOLD = 0.75
+SIMILAR_THRESHOLD = 0.70
 
 
-def find_similar_codes(code, candidates, threshold=SIMILAR_THRESHOLD, limit=3):
-    """75% 이상 유사한 엑셀 코드 제안 (비율 높은 순)."""
+def find_similar_codes(code, candidates, threshold=SIMILAR_THRESHOLD, limit=1):
+    """유사 엑셀 코드 제안 (가장 높은 1개 기본). 1글자 휴먼에러도 잡도록 70%+."""
     if not code:
         return []
     scored = []
@@ -24,6 +24,11 @@ def find_similar_codes(code, candidates, threshold=SIMILAR_THRESHOLD, limit=3):
         if not c or c == code:
             continue
         ratio = SequenceMatcher(None, code, c).ratio()
+        # 길이 비슷하고 거의 같으면 1글자 오타로 간주해 하한 완화
+        if ratio < threshold and abs(len(code) - len(c)) <= 1:
+            if ratio >= 0.60:
+                scored.append((ratio, c))
+                continue
         if ratio >= threshold:
             scored.append((ratio, c))
     scored.sort(key=lambda x: (-x[0], x[1]))
@@ -104,7 +109,7 @@ class SyncEngine(object):
                     missing_in_excel.append({"code": code, "suggestions": suggestions})
                     if suggestions:
                         best = suggestions[0]
-                        status = u"오류→제안:{0}({1}%)".format(
+                        status = u"→ 유사품번 {0} ({1}%)".format(
                             best[1], int(round(best[0] * 100))
                         )
                     else:

@@ -40,7 +40,10 @@ C = {
     "danger_bg": "#FEF2F2",
     "input_bg": "#FFFFFF",
     "result_bg": "#ECFDF5",
-    "err_bg": "#FEF08A",
+    "err_bg": "#FBBF24",
+    "err_fg": "#111827",
+    "sel_bg": "#1D4ED8",
+    "sel_fg": "#FFFFFF",
 }
 
 FONT = ("Segoe UI", 10)
@@ -53,9 +56,9 @@ class App(object):
     def __init__(self):
         self.root = tk.Tk()
         self.root.title(u"웅이 자재 발주 프로그램")
-        self.root.minsize(780, 480)
+        self.root.minsize(480, 520)
         self.root.configure(bg=C["bg"])
-        place_window_on_primary(self.root, width=860, height=560, margin=28)
+        place_window_on_primary(self.root, width=520, height=580, margin=28)
 
         self.cfg = load_config()
         self._stop = False
@@ -139,10 +142,13 @@ class App(object):
         box = scrolledtext.ScrolledText(
             parent,
             height=16,
+            width=26,
             font=FONT_MONO,
             bg=bg or C["input_bg"],
             fg=C["text"],
             insertbackground=C["text"],
+            selectbackground=C["sel_bg"],
+            selectforeground=C["sel_fg"],
             relief="flat",
             highlightthickness=1,
             highlightbackground=C["border"],
@@ -154,6 +160,10 @@ class App(object):
             spacing2=0,
             spacing3=2,
         )
+        try:
+            box.configure(inactiveselectbackground=C["sel_bg"])
+        except tk.TclError:
+            pass
         # 줄 구분: 선명한 얇은 실선
         try:
             box.tag_configure("rowline", underline=True, underlinefg="#64748B")
@@ -260,20 +270,31 @@ class App(object):
         ).pack(side="right", padx=(0, 8))
 
         paste_wrap = tk.Frame(wrap, bg=C["bg"])
-        paste_wrap.pack(fill="both", expand=True)
+        paste_wrap.pack(fill="both", expand=True, anchor="w")
         paste_wrap.columnconfigure(0, weight=1)
         paste_wrap.columnconfigure(1, weight=1)
         paste_wrap.rowconfigure(0, weight=1)
 
+        self.code_title_var = tk.StringVar(value=u"SAP 자재코드")
         self.code_box = self._make_col(
             paste_wrap,
             0,
-            u"SAP 자재코드",
+            self.code_title_var,
             u"비우기",
             self.clear_codes,
             padx=(0, 4),
+            title_is_var=True,
         )
-        self.code_box.tag_configure("err", background=C["err_bg"])
+        self.code_box.tag_configure(
+            "err",
+            background=C["err_bg"],
+            foreground=C["err_fg"],
+        )
+        self.code_box.tag_configure(
+            "err_sel",
+            background=C["sel_bg"],
+            foreground=C["sel_fg"],
+        )
 
         self.result_box = self._make_col(
             paste_wrap,
@@ -285,12 +306,17 @@ class App(object):
             bg=C["result_bg"],
         )
 
-    def _make_col(self, parent, col, title, btn_text, btn_cmd, padx=0, bg=None):
-        card, body = self._card(parent, padx=12, pady=10)
+    def _make_col(
+        self, parent, col, title, btn_text, btn_cmd, padx=0, bg=None, title_is_var=False
+    ):
+        card, body = self._card(parent, padx=10, pady=8)
         card.grid(row=0, column=col, sticky="nsew", padx=padx)
         hdr = tk.Frame(body, bg=C["surface"])
         hdr.pack(fill="x")
-        ttk.Label(hdr, text=title, style="Section.TLabel").pack(side="left")
+        if title_is_var:
+            ttk.Label(hdr, textvariable=title, style="Section.TLabel").pack(side="left")
+        else:
+            ttk.Label(hdr, text=title, style="Section.TLabel").pack(side="left")
         if btn_text and btn_cmd:
             ttk.Button(
                 hdr, text=btn_text, style="Ghost.TButton", command=btn_cmd
@@ -302,13 +328,13 @@ class App(object):
     def clear_codes(self):
         self.code_box.tag_remove("err", "1.0", "end")
         self.code_box.delete("1.0", "end")
+        self.code_title_var.set(u"SAP 자재코드")
         self._apply_row_lines(self.code_box)
 
     def select_result(self):
         text = self.result_box.get("1.0", "end-1c").rstrip("\r\n")
         self.result_box.tag_remove("sel", "1.0", "end")
         if text:
-            # 내용만 선택 (맨 아래 빈 줄 제외)
             self.result_box.tag_add("sel", "1.0", "1.0+{0}c".format(len(text)))
         self.result_box.focus_set()
         try:
@@ -323,19 +349,35 @@ class App(object):
         self.code_box.delete("1.0", "end")
         self.result_box.delete("1.0", "end")
 
-        codes = []
+        displays = []
         qtys = []
         err_idx = []
+        err_count = int(stats.get("missing_count") or 0)
         for i, r in enumerate(rows):
             code = r.get("code") or u""
-            codes.append(code)
             qtys.append(r.get("result_qty_text", u""))
             if code and not r.get("ok"):
                 err_idx.append(i)
+                sug = r.get("suggestions") or []
+                if sug:
+                    ratio, scode = sug[0]
+                    displays.append(
+                        u"{0}  → 유사품번 {1} ({2}%)".format(
+                            code, scode, int(round(ratio * 100))
+                        )
+                    )
+                else:
+                    displays.append(code)
+            else:
+                displays.append(code)
 
-        # 마지막 줄에 개행을 넣지 않아 빈 칸이 생기지 않음
-        if codes:
-            self.code_box.insert("1.0", u"\n".join(codes))
+        if err_count > 0:
+            self.code_title_var.set(u"SAP 자재코드  오류 {0}개".format(err_count))
+        else:
+            self.code_title_var.set(u"SAP 자재코드")
+
+        if displays:
+            self.code_box.insert("1.0", u"\n".join(displays))
         if qtys:
             self.result_box.insert("1.0", u"\n".join(qtys))
 
