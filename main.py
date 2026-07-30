@@ -52,7 +52,7 @@ FONT_MONO = ("Consolas", 10)
 class App(object):
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title(u"웅이전용")
+        self.root.title(u"웅이 자재 발주 프로그램")
         self.root.minsize(780, 480)
         self.root.configure(bg=C["bg"])
         place_window_on_primary(self.root, width=860, height=560, margin=28)
@@ -136,7 +136,7 @@ class App(object):
         return outer, pad
 
     def _text_box(self, parent, bg=None):
-        return scrolledtext.ScrolledText(
+        box = scrolledtext.ScrolledText(
             parent,
             height=16,
             font=FONT_MONO,
@@ -149,8 +149,47 @@ class App(object):
             highlightcolor=C["accent"],
             bd=0,
             padx=8,
-            pady=8,
+            pady=4,
+            spacing1=1,
+            spacing2=0,
+            spacing3=2,
         )
+        # 줄 구분: 아주 얇은 밑줄 (은근한 실선)
+        try:
+            box.tag_configure("rowline", underline=True, underlinefg="#D8DCE3")
+        except tk.TclError:
+            box.tag_configure("rowline", underline=True)
+        box.bind("<<Modified>>", lambda e, b=box: self._on_box_modified(b))
+        return box
+
+    def _on_box_modified(self, box):
+        try:
+            if not box.edit_modified():
+                return
+            box.edit_modified(False)
+            self._apply_row_lines(box)
+        except Exception:
+            pass
+
+    def _apply_row_lines(self, box):
+        """각 줄 아래 얇은 구분선 태그 적용."""
+        try:
+            box.tag_remove("rowline", "1.0", "end")
+            last = int(float(box.index("end-1c").split(".")[0]))
+            for line in range(1, last + 1):
+                start = "{0}.0".format(line)
+                end = "{0}.end".format(line)
+                # 빈 줄도 살짝 구분감 있도록 한 칸 padding
+                if box.compare(start, "==", end):
+                    continue
+                box.tag_add("rowline", start, end)
+            # err 음영이 있으면 rowline 위에 유지
+            try:
+                box.tag_raise("err")
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     def _build(self):
         wrap = ttk.Frame(self.root, style="TFrame")
@@ -188,7 +227,7 @@ class App(object):
         )
         ttk.Button(
             dir_row,
-            text=u"지정하기",
+            text=u"지정",
             style="Ghost.TButton",
             command=self.browse_unmatched_dir,
         ).pack(side="left", padx=(6, 0))
@@ -208,7 +247,7 @@ class App(object):
             side="right"
         )
         ttk.Button(
-            act, text=u"반영하기", style="Primary.TButton", command=self.do_run
+            act, text=u"추출", style="Primary.TButton", command=self.do_run
         ).pack(side="right", padx=(0, 8))
 
         paste_wrap = tk.Frame(wrap, bg=C["bg"])
@@ -230,7 +269,7 @@ class App(object):
         self.result_box = self._make_col(
             paste_wrap,
             1,
-            u"SAP 붙여넣기",
+            u"오더수량(SAP 붙여넣기)",
             u"전체선택",
             self.select_result,
             padx=(4, 0),
@@ -254,6 +293,7 @@ class App(object):
     def clear_codes(self):
         self.code_box.tag_remove("err", "1.0", "end")
         self.code_box.delete("1.0", "end")
+        self._apply_row_lines(self.code_box)
 
     def select_result(self):
         self.result_box.tag_add("sel", "1.0", "end")
@@ -261,6 +301,28 @@ class App(object):
         try:
             self.root.clipboard_clear()
             self.root.clipboard_append(self.result_box.get("1.0", "end-1c"))
+        except Exception:
+            pass
+
+    def _show_results(self, stats):
+        rows = stats.get("result_rows") or []
+        self.code_box.tag_remove("err", "1.0", "end")
+        self.code_box.delete("1.0", "end")
+        self.result_box.delete("1.0", "end")
+
+        for r in rows:
+            line_start = self.code_box.index("end-1c")
+            code = r.get("code") or u""
+            self.code_box.insert("end", code + "\n")
+            self.result_box.insert("end", r.get("result_qty_text", u"") + "\n")
+            if code and not r.get("ok"):
+                line_end = self.code_box.index("end-1c")
+                self.code_box.tag_add("err", line_start, line_end)
+
+        self._apply_row_lines(self.code_box)
+        self._apply_row_lines(self.result_box)
+        try:
+            self.code_box.tag_raise("err")
         except Exception:
             pass
 
@@ -276,7 +338,7 @@ class App(object):
             save_config(self.cfg)
 
     def browse_unmatched_dir(self):
-        path = filedialog.askdirectory(title=u"미매칭 엑셀 저장 폴더")
+        path = filedialog.askdirectory(title=u"발주 파일 저장 폴더")
         if path:
             self.unmatched_dir_var.set(path)
             self._save_unmatched_settings()
@@ -349,23 +411,7 @@ class App(object):
             daemon=True,
         ).start()
 
-    def _show_results(self, stats):
-        rows = stats.get("result_rows") or []
-        self.code_box.tag_remove("err", "1.0", "end")
-        self.code_box.delete("1.0", "end")
-        self.result_box.delete("1.0", "end")
-
-        for r in rows:
-            line_start = self.code_box.index("end-1c")
-            code = r.get("code") or u""
-            self.code_box.insert("end", code + "\n")
-            self.result_box.insert("end", r.get("result_qty_text", u"") + "\n")
-            if code and not r.get("ok"):
-                line_end = self.code_box.index("end-1c")
-                self.code_box.tag_add("err", line_start, line_end)
-
     def _run_thread(self, path, codes, unmatched_path):
-        # 파일 로그만 (화면 로그 없음), 엑셀은 백그라운드
         logger = DriveCheckLog(gui_callback=None)
         try:
             engine = SyncEngine(
@@ -378,12 +424,12 @@ class App(object):
                 codes_text=codes,
                 unmatched_path=unmatched_path,
             )
-            logger.finish(u"반영 완료")
+            logger.finish(u"추출 완료")
             if stats:
                 self.root.after(0, lambda: self._show_results(stats))
                 self.root.after(0, lambda: self._finish_dialog(stats))
         except Exception as e:
-            logger.exception(u"반영")
+            logger.exception(u"추출")
             self.root.after(
                 0, lambda: messagebox.showerror(u"오류", u"{0}".format(e))
             )
@@ -398,7 +444,6 @@ class App(object):
                 u"SAP 자재코드 오류 : {0}개".format(count),
             )
             return
-        # 정상: 팝업·매칭 문구·엑셀 화면 없음 (결과 수량은 칸에만 표시)
 
     def run(self):
         self.root.mainloop()

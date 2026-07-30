@@ -105,6 +105,20 @@ def parse_pasted_sap_qtys(text):
     return qtys
 
 
+def unique_save_path(path):
+    """같은 이름이 있으면 name(1).ext, name(2).ext … 로 저장."""
+    path = os.path.abspath(path)
+    if not os.path.exists(path):
+        return path
+    base, ext = os.path.splitext(path)
+    n = 1
+    while True:
+        candidate = u"{0}({1}){2}".format(base, n, ext)
+        if not os.path.exists(candidate):
+            return candidate
+        n += 1
+
+
 class ExcelWorkbook(object):
     def __init__(self, path, logger=None):
         self.path = os.path.abspath(path)
@@ -205,6 +219,7 @@ class ExcelWorkbook(object):
 
         out_path = os.path.abspath(out_path)
         ext = os.path.splitext(out_path)[1] or src_ext
+        out_path = unique_save_path(out_path)
 
         new_wb = self._excel.Workbooks.Add()
         new_ws = new_wb.Worksheets(1)
@@ -232,18 +247,12 @@ class ExcelWorkbook(object):
         except Exception:
             pass
 
-        try:
-            if os.path.isfile(out_path):
-                os.remove(out_path)
-        except Exception:
-            pass
-
         # 56 = xlExcel8 (.xls), 51 = xlOpenXMLWorkbook (.xlsx)
         file_format = 56 if ext.lower() == u".xls" else 51
         try:
             new_wb.SaveAs(out_path, FileFormat=file_format)
         except Exception:
-            out_path = os.path.splitext(out_path)[0] + u".xlsx"
+            out_path = unique_save_path(os.path.splitext(out_path)[0] + u".xlsx")
             new_wb.SaveAs(out_path, FileFormat=51)
 
         new_wb.Close(SaveChanges=False)
