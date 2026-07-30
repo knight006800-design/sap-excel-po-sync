@@ -35,7 +35,7 @@ def default_config():
     return {
         "excel_path": "",
         "unmatched_dir": "",
-        "unmatched_filename": u"미매칭",
+        "unmatched_filename": "",
         "delay_after_click": 0.25,
         "delay_after_type": 0.35,
         "delay_between_rows": 0.15,
