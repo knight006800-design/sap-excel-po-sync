@@ -167,7 +167,7 @@ class App(object):
 
         excel_card, excel = self._card(top_row, padx=12, pady=10)
         excel_card.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
-        ttk.Label(excel, text=u"엑셀 파일", style="Section.TLabel").pack(anchor="w")
+        ttk.Label(excel, text=u"파일", style="Section.TLabel").pack(anchor="w")
         row = tk.Frame(excel, bg=C["surface"])
         row.pack(fill="x", pady=(6, 0))
         self.excel_var = tk.StringVar(value=self.cfg.get("excel_path") or "")
@@ -175,12 +175,12 @@ class App(object):
             side="left", fill="x", expand=True, ipady=3
         )
         ttk.Button(
-            row, text=u"찾아보기", style="Ghost.TButton", command=self.browse_excel
+            row, text=u"경로", style="Ghost.TButton", command=self.browse_excel
         ).pack(side="left", padx=(6, 0))
 
         um_card, um = self._card(top_row, padx=12, pady=10)
         um_card.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
-        ttk.Label(um, text=u"미매칭 추출", style="Section.TLabel").pack(anchor="w")
+        ttk.Label(um, text=u"발주 파일 저장위치", style="Section.TLabel").pack(anchor="w")
         dir_row = tk.Frame(um, bg=C["surface"])
         dir_row.pack(fill="x", pady=(6, 4))
         ttk.Label(dir_row, text=u"폴더", style="Card.TLabel", width=5).pack(side="left")
@@ -190,7 +190,7 @@ class App(object):
         )
         ttk.Button(
             dir_row,
-            text=u"폴더",
+            text=u"지정하기",
             style="Ghost.TButton",
             command=self.browse_unmatched_dir,
         ).pack(side="left", padx=(6, 0))
@@ -232,7 +232,7 @@ class App(object):
         self.result_box = self._make_col(
             paste_wrap,
             1,
-            u"결과 수량 (SAP 붙여넣기용)",
+            u"SAP 붙여넣기",
             u"전체선택",
             self.select_result,
             padx=(4, 0),
@@ -278,7 +278,7 @@ class App(object):
             save_config(self.cfg)
 
     def browse_unmatched_dir(self):
-        path = filedialog.askdirectory(title=u"미매칭 엑셀 저장 폴더")
+        path = filedialog.askdirectory(title=u"발주 파일 저장 폴더")
         if path:
             self.unmatched_dir_var.set(path)
             self._save_unmatched_settings()
