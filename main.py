@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""SAP–엑셀 구매오더 수량 비교 (웅이전용)."""
+"""SAP–엑셀 자재 발주 프로그램 (웅이전용)."""
 from __future__ import print_function
 
 import os
@@ -19,7 +19,7 @@ from datetime import datetime
 
 from drive_check import DriveCheckLog
 from monitors import place_window_on_primary
-from paths_util import app_dir, load_config, save_config
+from paths_util import load_config, save_config
 from sync_engine import SyncEngine
 
 
@@ -40,26 +40,22 @@ C = {
     "danger_bg": "#FEF2F2",
     "input_bg": "#FFFFFF",
     "result_bg": "#ECFDF5",
-    "log_bg": "#111827",
-    "log_fg": "#E5E7EB",
-    "chip_bg": "#EEF2FF",
-    "chip_fg": "#1E3A8A",
+    "err_bg": "#FEF08A",
 }
 
 FONT = ("Segoe UI", 10)
 FONT_B = ("Segoe UI", 10, "bold")
 FONT_H = ("Segoe UI", 16, "bold")
-FONT_S = ("Segoe UI", 9)
 FONT_MONO = ("Consolas", 10)
 
 
 class App(object):
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title(u"웅이전용 — 구매오더 수량 비교")
-        self.root.minsize(900, 620)
+        self.root.title(u"웅이전용 자재 발주 프로그램")
+        self.root.minsize(780, 480)
         self.root.configure(bg=C["bg"])
-        place_window_on_primary(self.root, width=960, height=680, margin=28)
+        place_window_on_primary(self.root, width=860, height=560, margin=28)
 
         self.cfg = load_config()
         self._stop = False
@@ -67,10 +63,6 @@ class App(object):
 
         self._setup_style()
         self._build()
-
-        self.append_log(u"프로그램 폴더: {0}".format(app_dir()))
-        if self.excel_var.get():
-            self.append_log(u"연결된 엑셀: {0}".format(self.excel_var.get()))
 
     def _setup_style(self):
         style = ttk.Style(self.root)
@@ -84,13 +76,10 @@ class App(object):
             "Card.TLabel", background=C["surface"], foreground=C["text"], font=FONT
         )
         style.configure(
-            "Muted.TLabel", background=C["bg"], foreground=C["muted"], font=FONT_S
-        )
-        style.configure(
             "CardMuted.TLabel",
             background=C["surface"],
             foreground=C["muted"],
-            font=FONT_S,
+            font=("Segoe UI", 9),
         )
         style.configure(
             "Title.TLabel", background=C["bg"], foreground=C["text"], font=FONT_H
@@ -146,9 +135,10 @@ class App(object):
         pad.pack(fill="both", expand=True, padx=padx, pady=pady)
         return outer, pad
 
-    def _text_box(self, parent, bg=None, width=None):
-        kw = dict(
-            height=14,
+    def _text_box(self, parent, bg=None):
+        return scrolledtext.ScrolledText(
+            parent,
+            height=16,
             font=FONT_MONO,
             bg=bg or C["input_bg"],
             fg=C["text"],
@@ -161,20 +151,14 @@ class App(object):
             padx=8,
             pady=8,
         )
-        if width is not None:
-            kw["width"] = width
-        return scrolledtext.ScrolledText(parent, **kw)
 
     def _build(self):
         wrap = ttk.Frame(self.root, style="TFrame")
         wrap.pack(fill="both", expand=True, padx=20, pady=16)
 
-        ttk.Label(wrap, text=u"웅이전용", style="Title.TLabel").pack(anchor="w")
         ttk.Label(
-            wrap,
-            text=u"SAP 자재코드 → 엑셀 수량. 엑셀에 없으면 오류 안내, SAP에 없는 엑셀 코드는 추출.",
-            style="Muted.TLabel",
-        ).pack(anchor="w", pady=(2, 8))
+            wrap, text=u"웅이전용 자재 발주 프로그램", style="Title.TLabel"
+        ).pack(anchor="w", pady=(0, 10))
 
         top_row = tk.Frame(wrap, bg=C["bg"])
         top_row.pack(fill="x", pady=(0, 8))
@@ -226,72 +210,34 @@ class App(object):
             side="right"
         )
         ttk.Button(
-            act, text=u"비교·결과 생성", style="Primary.TButton", command=self.do_run
+            act, text=u"반영하기", style="Primary.TButton", command=self.do_run
         ).pack(side="right", padx=(0, 8))
 
-        self.status_lbl = tk.Label(
-            wrap,
-            text=u"대기 중 — SAP 자재코드를 붙여넣은 뒤 [비교·결과 생성]",
-            font=FONT_S,
-            bg=C["chip_bg"],
-            fg=C["chip_fg"],
-            justify="left",
-            anchor="w",
-            padx=10,
-            pady=6,
-        )
-        self.status_lbl.pack(fill="x", pady=(0, 8))
-
         paste_wrap = tk.Frame(wrap, bg=C["bg"])
-        paste_wrap.pack(fill="both", expand=True, pady=(0, 10))
+        paste_wrap.pack(fill="both", expand=True)
         paste_wrap.columnconfigure(0, weight=1)
         paste_wrap.columnconfigure(1, weight=1)
-        paste_wrap.columnconfigure(2, weight=1)
         paste_wrap.rowconfigure(0, weight=1)
 
         self.code_box = self._make_col(
             paste_wrap,
             0,
-            u"① SAP 자재코드",
+            u"SAP 자재코드",
             u"비우기",
             self.clear_codes,
             padx=(0, 4),
         )
+        self.code_box.tag_configure("err", background=C["err_bg"])
+
         self.result_box = self._make_col(
             paste_wrap,
             1,
-            u"② 결과 수량 (엑셀 → SAP 붙여넣기)",
+            u"결과 수량 (SAP 붙여넣기용)",
             u"전체선택",
             self.select_result,
-            padx=4,
+            padx=(4, 0),
             bg=C["result_bg"],
         )
-        self.status_box = self._make_col(
-            paste_wrap,
-            2,
-            u"상태",
-            None,
-            None,
-            padx=(4, 0),
-        )
-
-        log_card, log_body = self._card(wrap, padx=12, pady=10)
-        log_card.pack(fill="both", expand=True)
-        ttk.Label(log_body, text=u"실행 로그", style="Section.TLabel").pack(anchor="w")
-        self.log_box = scrolledtext.ScrolledText(
-            log_body,
-            height=6,
-            font=("Consolas", 9),
-            bg=C["log_bg"],
-            fg=C["log_fg"],
-            insertbackground=C["log_fg"],
-            relief="flat",
-            highlightthickness=0,
-            bd=0,
-            padx=8,
-            pady=8,
-        )
-        self.log_box.pack(fill="both", expand=True, pady=(6, 0))
 
     def _make_col(self, parent, col, title, btn_text, btn_cmd, padx=0, bg=None):
         card, body = self._card(parent, padx=12, pady=10)
@@ -307,14 +253,8 @@ class App(object):
         box.pack(fill="both", expand=True, pady=(6, 0))
         return box
 
-    def append_log(self, line):
-        def _do():
-            self.log_box.insert("end", line + "\n")
-            self.log_box.see("end")
-
-        self.root.after(0, _do)
-
     def clear_codes(self):
+        self.code_box.tag_remove("err", "1.0", "end")
         self.code_box.delete("1.0", "end")
 
     def select_result(self):
@@ -323,7 +263,6 @@ class App(object):
         try:
             self.root.clipboard_clear()
             self.root.clipboard_append(self.result_box.get("1.0", "end-1c"))
-            self.append_log(u"결과 수량을 클립보드에 복사했습니다.")
         except Exception:
             pass
 
@@ -337,14 +276,12 @@ class App(object):
             self.cfg = load_config()
             self.cfg["excel_path"] = path
             save_config(self.cfg)
-            self.append_log(u"엑셀 연결 저장: {0}".format(path))
 
     def browse_unmatched_dir(self):
         path = filedialog.askdirectory(title=u"미매칭 엑셀 저장 폴더")
         if path:
             self.unmatched_dir_var.set(path)
             self._save_unmatched_settings()
-            self.append_log(u"미매칭 저장 폴더: {0}".format(path))
 
     def _save_unmatched_settings(self):
         cfg = load_config()
@@ -374,7 +311,6 @@ class App(object):
 
     def do_stop(self):
         self._stop = True
-        self.append_log(u"중지 요청…")
 
     def _box_text(self, box):
         raw = box.get("1.0", "end")
@@ -409,7 +345,6 @@ class App(object):
 
         self._stop = False
         self._running = True
-        self.status_lbl.config(text=u"비교 중…")
         threading.Thread(
             target=self._run_thread,
             args=(path, codes, unmatched_path),
@@ -417,22 +352,23 @@ class App(object):
         ).start()
 
     def _show_results(self, stats):
+        rows = stats.get("result_rows") or []
+        self.code_box.tag_remove("err", "1.0", "end")
+        self.code_box.delete("1.0", "end")
         self.result_box.delete("1.0", "end")
-        self.status_box.delete("1.0", "end")
-        for r in stats.get("result_rows") or []:
-            self.result_box.insert("end", r.get("result_qty_text", u"") + "\n")
-            self.status_box.insert("end", r.get("status", u"") + "\n")
 
-        msg = (
-            u"매칭={matched} | 엑셀오류(SAP→없음)={missing_count} | "
-            u"엑셀만있음추출={unmatched}"
-        ).format(**stats)
-        if stats.get("moved_path"):
-            msg += u" | 파일: {0}".format(stats["moved_path"])
-        self.status_lbl.config(text=msg)
+        for r in rows:
+            line_start = self.code_box.index("end-1c")
+            code = r.get("code") or u""
+            self.code_box.insert("end", code + "\n")
+            self.result_box.insert("end", r.get("result_qty_text", u"") + "\n")
+            if code and not r.get("ok"):
+                line_end = self.code_box.index("end-1c")
+                self.code_box.tag_add("err", line_start, line_end)
 
     def _run_thread(self, path, codes, unmatched_path):
-        logger = DriveCheckLog(gui_callback=self.append_log)
+        # 파일 로그만 (화면 로그 없음), 엑셀은 백그라운드
+        logger = DriveCheckLog(gui_callback=None)
         try:
             engine = SyncEngine(
                 config=load_config(),
@@ -444,61 +380,27 @@ class App(object):
                 codes_text=codes,
                 unmatched_path=unmatched_path,
             )
-            logger.finish(u"비교 완료")
+            logger.finish(u"반영 완료")
             if stats:
                 self.root.after(0, lambda: self._show_results(stats))
                 self.root.after(0, lambda: self._finish_dialog(stats))
         except Exception as e:
-            logger.exception(u"비교")
-            self.append_log(u"오류: {0}".format(e))
+            logger.exception(u"반영")
             self.root.after(
                 0, lambda: messagebox.showerror(u"오류", u"{0}".format(e))
-            )
-            self.root.after(
-                0,
-                lambda: self.status_lbl.config(text=u"오류 — 로그를 확인하세요."),
             )
         finally:
             self._running = False
 
     def _finish_dialog(self, stats):
-        details = stats.get("missing_details") or []
-        moved = stats.get("moved_path") or u"(없음)"
-
-        if details:
-            blocks = []
-            for item in details[:40]:
-                c = item["code"]
-                sug = item.get("suggestions") or []
-                if sug:
-                    sug_txt = u", ".join(
-                        u"{0} ({1}%)".format(s[1], int(round(s[0] * 100))) for s in sug
-                    )
-                    blocks.append(u"  · {0}\n      유사 제안: {1}".format(c, sug_txt))
-                else:
-                    blocks.append(u"  · {0}\n      유사 제안: 없음".format(c))
-            more = u""
-            if len(details) > 40:
-                more = u"\n  … 외 {0}개".format(len(details) - 40)
+        count = int(stats.get("missing_count") or 0)
+        if count > 0:
             messagebox.showerror(
-                u"엑셀 코드기입 오류 / 휴먼에러",
-                u"SAP에만 있고 엑셀에 없는 코드입니다.\n"
-                u"엑셀을 수정한 뒤 다시 비교해 주세요.\n\n"
-                u"{0}{1}\n\n"
-                u"(엑셀에만 있는 코드 추출: {2})".format(
-                    u"\n".join(blocks), more, moved
-                ),
+                u"오류",
+                u"SAP 자재코드 오류 : {0}개".format(count),
             )
             return
-
-        tip = (
-            u"비교 완료.\n"
-            u"매칭(엑셀수량)={0}\n"
-            u"SAP에 없는 엑셀 코드 추출={1}\n"
-            u"추출 파일: {2}\n\n"
-            u"② 결과 수량을 전체선택 후 SAP 오더수량 열에 Ctrl+V 하세요."
-        ).format(stats["matched"], stats["unmatched"], moved)
-        messagebox.showinfo(u"완료", tip)
+        # 정상: 팝업·매칭 문구·엑셀 화면 없음 (결과 수량은 칸에만 표시)
 
     def run(self):
         self.root.mainloop()

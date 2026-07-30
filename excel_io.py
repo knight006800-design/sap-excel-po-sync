@@ -124,7 +124,8 @@ class ExcelWorkbook(object):
         if self.logger:
             self.logger.warn(msg)
 
-    def open(self):
+    def open(self, visible=False):
+        """엑셀 열기. visible=False 면 화면 없이 백그라운드에서만 작업."""
         if not os.path.isfile(self.path):
             raise IOError(u"엑셀 파일이 없습니다: {0}".format(self.path))
         import pythoncom
@@ -132,38 +133,22 @@ class ExcelWorkbook(object):
 
         pythoncom.CoInitialize()
         self._com_inited = True
+        self._owned_excel = False
 
-        self._excel = None
-        try:
-            self._excel = win32com.client.GetActiveObject("Excel.Application")
-            self._log(u"기존 Excel 인스턴스에 연결")
-        except Exception:
-            self._excel = win32com.client.DispatchEx("Excel.Application")
-            self._log(u"새 Excel 인스턴스 시작")
-
+        # 항상 숨김 전용 인스턴스 사용 (이미 열린 구매오더를 화면에 띄우지 않음)
+        self._excel = win32com.client.DispatchEx("Excel.Application")
+        self._owned_excel = True
         self._excel.DisplayAlerts = False
-        self._excel.Visible = True
-
-        self._wb = None
-        target = self.path.lower()
+        self._excel.Visible = bool(visible)
         try:
-            for i in range(1, self._excel.Workbooks.Count + 1):
-                wb = self._excel.Workbooks(i)
-                try:
-                    full = str(wb.FullName).lower()
-                except Exception:
-                    continue
-                if full == target:
-                    self._wb = wb
-                    self._log(u"이미 열린 엑셀에 연결: {0}".format(self.path))
-                    break
+            self._excel.ScreenUpdating = bool(visible)
         except Exception:
             pass
 
-        if self._wb is None:
-            self._wb = self._excel.Workbooks.Open(self.path, UpdateLinks=0, ReadOnly=False)
-            self._log(u"엑셀 열림: {0}".format(self.path))
-
+        self._wb = self._excel.Workbooks.Open(
+            self.path, UpdateLinks=0, ReadOnly=True
+        )
+        self._log(u"엑셀 백그라운드 열림: {0}".format(self.path))
         self._ws = self._wb.Worksheets(1)
 
     def load_rows(self):
@@ -281,8 +266,18 @@ class ExcelWorkbook(object):
                 raise IOError(u"엑셀 저장 실패: {0} / {1}".format(e, e2))
 
     def close(self):
+        try:
+            if self._wb is not None:
+                self._wb.Close(SaveChanges=False)
+        except Exception:
+            pass
         self._ws = None
         self._wb = None
+        try:
+            if getattr(self, "_owned_excel", False) and self._excel is not None:
+                self._excel.Quit()
+        except Exception:
+            pass
         self._excel = None
         if self._com_inited:
             try:
