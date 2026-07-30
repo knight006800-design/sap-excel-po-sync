@@ -46,19 +46,20 @@ C = {
     "sel_fg": "#FFFFFF",
 }
 
-FONT = ("Segoe UI", 10)
-FONT_B = ("Segoe UI", 10, "bold")
-FONT_H = ("Segoe UI", 16, "bold")
-FONT_MONO = ("Consolas", 10)
+FONT = ("Segoe UI", 11)
+FONT_B = ("Segoe UI", 11, "bold")
+FONT_H = ("Segoe UI", 17, "bold")
+FONT_BTN = ("Segoe UI", 12, "bold")
+FONT_MONO = ("Consolas", 11)
 
 
 class App(object):
     def __init__(self):
         self.root = tk.Tk()
         self.root.title(u"웅이 자재 발주 프로그램")
-        self.root.minsize(480, 520)
+        self.root.minsize(640, 540)
         self.root.configure(bg=C["bg"])
-        place_window_on_primary(self.root, width=520, height=580, margin=28)
+        place_window_on_primary(self.root, width=720, height=620, margin=28)
 
         self.cfg = load_config()
         self._stop = False
@@ -104,8 +105,8 @@ class App(object):
             "Primary.TButton",
             background=C["accent"],
             foreground=C["accent_fg"],
-            font=FONT_B,
-            padding=(16, 10),
+            font=FONT_BTN,
+            padding=(20, 12),
             borderwidth=0,
         )
         style.map(
@@ -116,8 +117,8 @@ class App(object):
             "Ghost.TButton",
             background=C["surface"],
             foreground=C["text"],
-            font=FONT,
-            padding=(12, 8),
+            font=FONT_BTN,
+            padding=(14, 10),
             borderwidth=1,
         )
         style.map("Ghost.TButton", background=[("active", C["border"])])
@@ -125,8 +126,8 @@ class App(object):
             "Danger.TButton",
             background=C["danger_bg"],
             foreground=C["danger"],
-            font=FONT,
-            padding=(12, 8),
+            font=FONT_BTN,
+            padding=(14, 10),
             borderwidth=0,
         )
 
@@ -138,11 +139,11 @@ class App(object):
         pad.pack(fill="both", expand=True, padx=padx, pady=pady)
         return outer, pad
 
-    def _text_box(self, parent, bg=None):
+    def _text_box(self, parent, bg=None, width=28):
         box = scrolledtext.ScrolledText(
             parent,
-            height=16,
-            width=26,
+            height=18,
+            width=width,
             font=FONT_MONO,
             bg=bg or C["input_bg"],
             fg=C["text"],
@@ -212,67 +213,67 @@ class App(object):
 
     def _build(self):
         wrap = ttk.Frame(self.root, style="TFrame")
-        wrap.pack(fill="both", expand=True, padx=20, pady=16)
+        wrap.pack(fill="both", expand=True, padx=22, pady=18)
 
         top_row = tk.Frame(wrap, bg=C["bg"])
-        top_row.pack(fill="x", pady=(0, 8))
-        top_row.columnconfigure(0, weight=1)
-        top_row.columnconfigure(1, weight=1)
+        top_row.pack(fill="x", pady=(0, 10))
+        top_row.columnconfigure(0, weight=1, uniform="top")
+        top_row.columnconfigure(1, weight=1, uniform="top")
 
-        excel_card, excel = self._card(top_row, padx=12, pady=10)
-        excel_card.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+        excel_card, excel = self._card(top_row, padx=14, pady=12)
+        excel_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         ttk.Label(excel, text=u"파일", style="Section.TLabel").pack(anchor="w")
         row = tk.Frame(excel, bg=C["surface"])
-        row.pack(fill="x", pady=(6, 0))
+        row.pack(fill="x", pady=(8, 0))
         self.excel_var = tk.StringVar(value=self.cfg.get("excel_path") or "")
         ttk.Entry(row, textvariable=self.excel_var).pack(
-            side="left", fill="x", expand=True, ipady=3
+            side="left", fill="x", expand=True, ipady=4
         )
         ttk.Button(
             row, text=u"경로", style="Ghost.TButton", command=self.browse_excel
-        ).pack(side="left", padx=(6, 0))
+        ).pack(side="left", padx=(8, 0))
 
-        um_card, um = self._card(top_row, padx=12, pady=10)
-        um_card.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
+        um_card, um = self._card(top_row, padx=14, pady=12)
+        um_card.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
         ttk.Label(um, text=u"발주 파일 저장위치", style="Section.TLabel").pack(
             anchor="w"
         )
         dir_row = tk.Frame(um, bg=C["surface"])
-        dir_row.pack(fill="x", pady=(6, 4))
+        dir_row.pack(fill="x", pady=(8, 6))
         ttk.Label(dir_row, text=u"폴더", style="Card.TLabel", width=5).pack(side="left")
         self.unmatched_dir_var = tk.StringVar(value=self.cfg.get("unmatched_dir") or "")
         ttk.Entry(dir_row, textvariable=self.unmatched_dir_var).pack(
-            side="left", fill="x", expand=True, ipady=3
+            side="left", fill="x", expand=True, ipady=4
         )
         ttk.Button(
             dir_row,
             text=u"지정",
             style="Ghost.TButton",
             command=self.browse_unmatched_dir,
-        ).pack(side="left", padx=(6, 0))
+        ).pack(side="left", padx=(8, 0))
         name_row = tk.Frame(um, bg=C["surface"])
         name_row.pack(fill="x")
-        ttk.Label(name_row, text=u"파일명", style="Card.TLabel", width=6).pack(
+        ttk.Label(name_row, text=u"파일명", style="Card.TLabel", width=5).pack(
             side="left"
         )
         self.unmatched_name_var = tk.StringVar(value=today_unmatched_filename())
         ttk.Entry(name_row, textvariable=self.unmatched_name_var).pack(
-            side="left", fill="x", expand=True, ipady=3
+            side="left", fill="x", expand=True, ipady=4
         )
 
         act = tk.Frame(wrap, bg=C["bg"])
-        act.pack(fill="x", pady=(0, 8))
+        act.pack(fill="x", pady=(0, 10))
         ttk.Button(act, text=u"중지", style="Danger.TButton", command=self.do_stop).pack(
             side="right"
         )
         ttk.Button(
             act, text=u"추출", style="Primary.TButton", command=self.do_run
-        ).pack(side="right", padx=(0, 8))
+        ).pack(side="right", padx=(0, 10))
 
         paste_wrap = tk.Frame(wrap, bg=C["bg"])
         paste_wrap.pack(fill="both", expand=True, anchor="w")
-        paste_wrap.columnconfigure(0, weight=1)
-        paste_wrap.columnconfigure(1, weight=1)
+        paste_wrap.columnconfigure(0, weight=2, uniform="paste")
+        paste_wrap.columnconfigure(1, weight=1, uniform="paste")
         paste_wrap.rowconfigure(0, weight=1)
 
         self.code_title_var = tk.StringVar(value=u"SAP 자재코드")
@@ -282,8 +283,9 @@ class App(object):
             self.code_title_var,
             u"비우기",
             self.clear_codes,
-            padx=(0, 4),
+            padx=(0, 6),
             title_is_var=True,
+            box_width=36,
         )
         self.code_box.tag_configure(
             "err",
@@ -302,14 +304,24 @@ class App(object):
             u"오더수량(SAP 붙여넣기)",
             u"전체선택",
             self.select_result,
-            padx=(4, 0),
+            padx=(6, 0),
             bg=C["result_bg"],
+            box_width=18,
         )
 
     def _make_col(
-        self, parent, col, title, btn_text, btn_cmd, padx=0, bg=None, title_is_var=False
+        self,
+        parent,
+        col,
+        title,
+        btn_text,
+        btn_cmd,
+        padx=0,
+        bg=None,
+        title_is_var=False,
+        box_width=28,
     ):
-        card, body = self._card(parent, padx=10, pady=8)
+        card, body = self._card(parent, padx=12, pady=10)
         card.grid(row=0, column=col, sticky="nsew", padx=padx)
         hdr = tk.Frame(body, bg=C["surface"])
         hdr.pack(fill="x")
@@ -321,8 +333,8 @@ class App(object):
             ttk.Button(
                 hdr, text=btn_text, style="Ghost.TButton", command=btn_cmd
             ).pack(side="right")
-        box = self._text_box(body, bg=bg)
-        box.pack(fill="both", expand=True, pady=(6, 0))
+        box = self._text_box(body, bg=bg, width=box_width)
+        box.pack(fill="both", expand=True, pady=(8, 0))
         return box
 
     def clear_codes(self):
