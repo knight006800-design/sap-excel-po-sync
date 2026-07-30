@@ -7,12 +7,11 @@ import threading
 
 try:
     import tkinter as tk
-    from tkinter import filedialog, messagebox, scrolledtext, ttk
+    from tkinter import filedialog, messagebox, ttk
 except ImportError:
     import Tkinter as tk
     import tkFileDialog as filedialog
     import tkMessageBox as messagebox
-    import ScrolledText as scrolledtext
     import ttk
 
 from datetime import datetime
@@ -60,9 +59,103 @@ FONT = ("Segoe UI", 10)
 FONT_SM = ("Segoe UI", 9)
 FONT_B = ("Segoe UI", 10, "bold")
 FONT_LABEL = ("Segoe UI", 9)
-FONT_BRAND = ("Segoe UI", 14, "bold")
 FONT_CTA = ("Segoe UI", 11, "bold")
 FONT_MONO = ("Consolas", 10)
+FONT_ELLIPSIS = ("Segoe UI", 12, "bold")
+
+
+class SlimScrollbar(tk.Canvas):
+    """화살표 없는 슬림 스크롤바."""
+
+    def __init__(self, parent, command=None, width=7, bg=None, trough=None, thumb=None):
+        self._command = command
+        self._width = max(4, int(width))
+        self._trough = trough or C["surface_soft"]
+        self._thumb = thumb or "#C5C5CA"
+        self._thumb_active = "#9A9AA1"
+        self._lo = 0.0
+        self._hi = 1.0
+        self._drag_y = None
+        self._drag_lo = 0.0
+        tk.Canvas.__init__(
+            self,
+            parent,
+            width=self._width,
+            highlightthickness=0,
+            bd=0,
+            bg=self._trough,
+            cursor="arrow",
+        )
+        self.bind("<Configure>", lambda e: self._redraw())
+        self.bind("<ButtonPress-1>", self._on_press)
+        self.bind("<B1-Motion>", self._on_drag)
+        self.bind("<ButtonRelease-1>", self._on_release)
+        self.bind("<Enter>", lambda e: self._set_thumb_color(self._thumb_active))
+        self.bind("<Leave>", lambda e: self._set_thumb_color(self._thumb))
+
+    def set(self, lo, hi):
+        try:
+            self._lo = float(lo)
+            self._hi = float(hi)
+        except Exception:
+            self._lo, self._hi = 0.0, 1.0
+        self._redraw()
+
+    def _set_thumb_color(self, color):
+        self._thumb_draw = color
+        self._redraw()
+
+    def _thumb_metrics(self):
+        h = max(1, int(self.winfo_height()))
+        pad = 2
+        usable = max(1, h - pad * 2)
+        span = max(0.0, min(1.0, self._hi) - max(0.0, min(1.0, self._lo)))
+        if self._hi >= 1.0 and self._lo <= 0.0:
+            return None
+        th = max(18, int(usable * span))
+        top = pad + int(max(0.0, min(1.0, self._lo)) * (usable - th))
+        return pad, top, th, usable
+
+    def _redraw(self):
+        self.delete("all")
+        color = getattr(self, "_thumb_draw", self._thumb)
+        m = self._thumb_metrics()
+        if m is None:
+            return
+        pad, top, th, _usable = m
+        x0, x1 = 1, self._width - 1
+        # 둥근 느낌의 얇은 트랙 썸
+        self.create_rectangle(x0, top, x1, top + th, fill=color, outline="", tags="thumb")
+
+    def _on_press(self, event):
+        m = self._thumb_metrics()
+        if m is None:
+            return
+        _pad, top, th, usable = m
+        if top <= event.y <= top + th:
+            self._drag_y = event.y
+            self._drag_lo = self._lo
+            return
+        # 트랙 클릭 → 해당 위치로 점프
+        ratio = (event.y - th / 2.0) / float(max(1, usable - th))
+        ratio = max(0.0, min(1.0, ratio))
+        if self._command:
+            self._command("moveto", ratio)
+
+    def _on_drag(self, event):
+        if self._drag_y is None:
+            return
+        m = self._thumb_metrics()
+        if m is None:
+            return
+        _pad, _top, th, usable = m
+        delta = (event.y - self._drag_y) / float(max(1, usable - th))
+        ratio = max(0.0, min(1.0, self._drag_lo + delta))
+        if self._command:
+            self._command("moveto", ratio)
+
+    def _on_release(self, _event=None):
+        self._drag_y = None
 
 
 class PressButton(tk.Frame):
@@ -76,6 +169,7 @@ class PressButton(tk.Frame):
         primary=False,
         padx=18,
         pady=8,
+        font=None,
         **kwargs
     ):
         tk.Frame.__init__(self, parent, bg=parent.cget("bg"), **kwargs)
@@ -92,7 +186,7 @@ class PressButton(tk.Frame):
             self._press = C["accent_press"]
             self._disabled_bg = C["accent_disabled"]
             self._disabled_fg = C["accent_fg"]
-            font = FONT_CTA
+            btn_font = font or FONT_CTA
         else:
             self._bg = C["ghost_bg"]
             self._fg = C["text"]
@@ -100,7 +194,7 @@ class PressButton(tk.Frame):
             self._press = C["ghost_press"]
             self._disabled_bg = C["surface_soft"]
             self._disabled_fg = C["muted"]
-            font = FONT
+            btn_font = font or FONT
 
         border = C["border_strong"] if not primary else C["accent"]
         self._shell = tk.Frame(self, bg=border, bd=0, highlightthickness=0)
@@ -112,7 +206,7 @@ class PressButton(tk.Frame):
             text=text,
             bg=self._bg,
             fg=self._fg,
-            font=font,
+            font=btn_font,
             cursor="hand2",
             padx=padx,
             pady=pady,
@@ -248,8 +342,12 @@ class App(object):
         return outer, pad
 
     def _text_box(self, parent, bg=None, width=28):
-        box = scrolledtext.ScrolledText(
-            parent,
+        wrap = tk.Frame(parent, bg=C["border"], bd=0, highlightthickness=0)
+        inner = tk.Frame(wrap, bg=bg or C["input_bg"], bd=0, highlightthickness=0)
+        inner.pack(fill="both", expand=True, padx=1, pady=1)
+
+        box = tk.Text(
+            inner,
             height=16,
             width=width,
             font=FONT_MONO,
@@ -259,20 +357,32 @@ class App(object):
             selectbackground=C["sel_bg"],
             selectforeground=C["sel_fg"],
             relief="flat",
-            highlightthickness=1,
-            highlightbackground=C["border"],
-            highlightcolor=C["text"],
+            highlightthickness=0,
             bd=0,
             padx=10,
             pady=6,
             spacing1=0,
             spacing2=0,
             spacing3=1,
+            wrap="none",
         )
         try:
             box.configure(inactiveselectbackground=C["sel_bg"])
         except tk.TclError:
             pass
+
+        scroll = SlimScrollbar(
+            inner,
+            command=box.yview,
+            width=6,
+            trough=bg or C["input_bg"],
+            thumb="#C9C9CE",
+        )
+        box.configure(yscrollcommand=scroll.set)
+
+        box.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y", padx=(0, 2), pady=4)
+
         try:
             box.tag_configure("rowline", underline=True, underlinefg="#C4C4C8")
         except tk.TclError:
@@ -280,6 +390,12 @@ class App(object):
         box.bind("<<Modified>>", lambda e, b=box: self._on_box_modified(b))
         box.bind("<Control-a>", lambda e, b=box: self._select_content(b))
         box.bind("<Control-A>", lambda e, b=box: self._select_content(b))
+        # 마우스 휠
+        box.bind(
+            "<MouseWheel>",
+            lambda e, b=box: b.yview_scroll(int(-1 * (e.delta / 120)), "units"),
+        )
+        wrap.pack(fill="both", expand=True, pady=(8, 0))
         return box
 
     def _select_content(self, box):
@@ -320,42 +436,27 @@ class App(object):
         wrap = tk.Frame(self.root, bg=C["bg"])
         wrap.pack(fill="both", expand=True, padx=20, pady=16)
 
-        # Brand
-        brand = tk.Frame(wrap, bg=C["bg"])
-        brand.pack(fill="x", pady=(0, 12))
-        tk.Label(
-            brand,
-            text=u"웅이 자재 발주",
-            bg=C["bg"],
-            fg=C["text"],
-            font=FONT_BRAND,
-        ).pack(side="left")
-        self.status_var = tk.StringVar(value=u"")
-        self.status_label = tk.Label(
-            brand,
-            textvariable=self.status_var,
-            bg=C["bg"],
-            fg=C["muted"],
-            font=FONT_SM,
-        )
-        self.status_label.pack(side="right")
-
         # Settings surface
         settings, body = self._surface(wrap, padx=14, pady=12)
         settings.pack(fill="x", pady=(0, 10))
 
-        # File row
-        tk.Label(body, text=u"파일", bg=C["surface"], fg=C["label"], font=FONT_LABEL).pack(
-            anchor="w"
-        )
+        # 경로 행 (폴더와 동일: 앞쪽 라벨)
         file_row = tk.Frame(body, bg=C["surface"])
-        file_row.pack(fill="x", pady=(4, 10))
+        file_row.pack(fill="x", pady=(0, 10))
+        tk.Label(
+            file_row, text=u"경로", bg=C["surface"], fg=C["muted"], font=FONT_SM, width=5
+        ).pack(side="left")
         self.excel_var = tk.StringVar(value=self.cfg.get("excel_path") or "")
         ttk.Entry(file_row, textvariable=self.excel_var).pack(
             side="left", fill="x", expand=True, ipady=3
         )
         PressButton(
-            file_row, text=u"경로", command=self.browse_excel, padx=12, pady=5
+            file_row,
+            text=u"···",
+            command=self.browse_excel,
+            padx=10,
+            pady=4,
+            font=FONT_ELLIPSIS,
         ).pack(side="left", padx=(8, 0))
 
         # Thin divider
@@ -381,10 +482,11 @@ class App(object):
         )
         PressButton(
             dir_row,
-            text=u"지정",
+            text=u"···",
             command=self.browse_unmatched_dir,
-            padx=12,
-            pady=5,
+            padx=10,
+            pady=4,
+            font=FONT_ELLIPSIS,
         ).pack(side="left", padx=(8, 0))
 
         name_row = tk.Frame(body, bg=C["surface"])
@@ -402,9 +504,18 @@ class App(object):
             side="left", fill="x", expand=True, ipady=3
         )
 
-        # Action — extract only, right aligned
+        # Action — extract right, status left
         act = tk.Frame(wrap, bg=C["bg"])
         act.pack(fill="x", pady=(0, 10))
+        self.status_var = tk.StringVar(value=u"")
+        self.status_label = tk.Label(
+            act,
+            textvariable=self.status_var,
+            bg=C["bg"],
+            fg=C["muted"],
+            font=FONT_SM,
+        )
+        self.status_label.pack(side="left")
         self.extract_btn = PressButton(
             act,
             text=u"추출",
@@ -415,11 +526,11 @@ class App(object):
         )
         self.extract_btn.pack(side="right")
 
-        # Main panes 2:1
+        # Main panes 3:2
         paste_wrap = tk.Frame(wrap, bg=C["bg"])
         paste_wrap.pack(fill="both", expand=True)
-        paste_wrap.columnconfigure(0, weight=2, uniform="paste")
-        paste_wrap.columnconfigure(1, weight=1, uniform="paste")
+        paste_wrap.columnconfigure(0, weight=3, uniform="paste")
+        paste_wrap.columnconfigure(1, weight=2, uniform="paste")
         paste_wrap.rowconfigure(0, weight=1)
 
         self.code_title_var = tk.StringVar(value=u"SAP 자재코드")
@@ -431,7 +542,7 @@ class App(object):
             self.clear_codes,
             padx=(0, 6),
             title_is_var=True,
-            box_width=36,
+            box_width=34,
         )
         self.code_box.tag_configure(
             "err", background=C["err_bg"], foreground=C["err_fg"]
@@ -448,7 +559,7 @@ class App(object):
             self.select_result,
             padx=(6, 0),
             bg=C["result_bg"],
-            box_width=18,
+            box_width=22,
         )
 
     def _make_col(
@@ -471,6 +582,7 @@ class App(object):
             PressButton(
                 hdr, text=btn_text, command=btn_cmd, padx=10, pady=3
             ).pack(side="right")
+        # 왼쪽 정렬 (fill/expand 시 Label 기본 center 방지)
         if title_is_var:
             tk.Label(
                 hdr,
@@ -478,13 +590,20 @@ class App(object):
                 bg=C["surface"],
                 fg=C["text"],
                 font=FONT_B,
-            ).pack(side="left", fill="x", expand=True)
+                anchor="w",
+                justify="left",
+            ).pack(side="left", anchor="w")
         else:
             tk.Label(
-                hdr, text=title, bg=C["surface"], fg=C["text"], font=FONT_B
-            ).pack(side="left", fill="x", expand=True)
+                hdr,
+                text=title,
+                bg=C["surface"],
+                fg=C["text"],
+                font=FONT_B,
+                anchor="w",
+                justify="left",
+            ).pack(side="left", anchor="w")
         box = self._text_box(body, bg=bg, width=box_width)
-        box.pack(fill="both", expand=True, pady=(8, 0))
         return box
 
     def _set_status(self, text, kind=u"muted"):
