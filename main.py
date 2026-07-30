@@ -52,7 +52,7 @@ FONT_MONO = ("Consolas", 10)
 class App(object):
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title(u"웅이전용 자재 발주 프로그램")
+        self.root.title(u"웅이전용")
         self.root.minsize(780, 480)
         self.root.configure(bg=C["bg"])
         place_window_on_primary(self.root, width=860, height=560, margin=28)
@@ -156,10 +156,6 @@ class App(object):
         wrap = ttk.Frame(self.root, style="TFrame")
         wrap.pack(fill="both", expand=True, padx=20, pady=16)
 
-        ttk.Label(
-            wrap, text=u"웅이전용 자재 발주 프로그램", style="Title.TLabel"
-        ).pack(anchor="w", pady=(0, 10))
-
         top_row = tk.Frame(wrap, bg=C["bg"])
         top_row.pack(fill="x", pady=(0, 8))
         top_row.columnconfigure(0, weight=1)
@@ -180,7 +176,9 @@ class App(object):
 
         um_card, um = self._card(top_row, padx=12, pady=10)
         um_card.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
-        ttk.Label(um, text=u"발주 파일 저장위치", style="Section.TLabel").pack(anchor="w")
+        ttk.Label(um, text=u"발주 파일 저장위치", style="Section.TLabel").pack(
+            anchor="w"
+        )
         dir_row = tk.Frame(um, bg=C["surface"])
         dir_row.pack(fill="x", pady=(6, 4))
         ttk.Label(dir_row, text=u"폴더", style="Card.TLabel", width=5).pack(side="left")
@@ -278,7 +276,7 @@ class App(object):
             save_config(self.cfg)
 
     def browse_unmatched_dir(self):
-        path = filedialog.askdirectory(title=u"발주 파일 저장 폴더")
+        path = filedialog.askdirectory(title=u"미매칭 엑셀 저장 폴더")
         if path:
             self.unmatched_dir_var.set(path)
             self._save_unmatched_settings()
