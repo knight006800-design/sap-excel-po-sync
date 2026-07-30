@@ -64,15 +64,21 @@ def is_on_primary(x, y, monitors=None):
     return point_in_monitor(x, y, primary_monitor(monitors))
 
 
-def place_window_on_primary(win, width=720, height=520, margin=40):
-    """Tk 창을 주모니터 안에 배치."""
+def place_window_on_primary(win, width=720, height=520, margin=40, center=True):
+    """Tk 창을 주모니터 안에 배치. 기본은 화면 중앙."""
     mon = primary_monitor()
-    x = mon["left"] + margin
-    y = mon["top"] + margin
     max_w = max(200, mon["right"] - mon["left"] - margin * 2)
     max_h = max(200, mon["bottom"] - mon["top"] - margin * 2)
     width = min(width, max_w)
     height = min(height, max_h)
+    mw = mon["right"] - mon["left"]
+    mh = mon["bottom"] - mon["top"]
+    if center:
+        x = mon["left"] + max(margin, (mw - width) // 2)
+        y = mon["top"] + max(margin, (mh - height) // 2)
+    else:
+        x = mon["left"] + margin
+        y = mon["top"] + margin
     win.geometry("{0}x{1}+{2}+{3}".format(width, height, x, y))
 
 
