@@ -193,15 +193,22 @@ class SyncEngine(object):
                 )
 
             moved_path = None
-            if unmatched_excel:
+            has_errors = bool(missing_unique) or bool(no_qty)
+            # 오류가 없을 때만 발주(미매칭) 파일 생성
+            if unmatched_excel and not has_errors:
                 self.logger.info(u"SAP에 없는 엑셀 코드 → 새 파일 추출 (원본 유지)")
                 if unmatched_path:
                     self.logger.info(u"저장 위치: {0}".format(unmatched_path))
                 moved_path = book.move_unmatched_rows(
                     unmatched_excel, out_path=unmatched_path
                 )
+            elif unmatched_excel and has_errors:
+                self.logger.warn(
+                    u"오류 {0}건으로 발주 파일 추출을 생략합니다.".format(
+                        len(missing_unique) + len(no_qty)
+                    )
+                )
 
-            has_errors = bool(missing_unique) or bool(no_qty)
             paste_qty = u"\n".join(r["result_qty_text"] for r in result_rows)
 
             summary = {

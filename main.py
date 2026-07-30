@@ -46,13 +46,14 @@ C = {
     "ghost_press": "#F0F0F2",
     "input_bg": "#FFFFFF",
     "result_bg": "#F7FAF8",
-    "err_bg": "#FEF3C7",
-    "err_fg": "#78350F",
-    "sel_bg": "#111113",
+    "err_bg": "#FDE68A",
+    "err_fg": "#111827",
+    "sel_bg": "#2563EB",
     "sel_fg": "#FFFFFF",
     "divider": "#ECECEE",
     "status_ok": "#166534",
-    "status_err": "#B45309",
+    "status_err": "#DC2626",
+    "title_err": "#DC2626",
 }
 
 FONT = ("Segoe UI", 10)
@@ -370,6 +371,13 @@ class App(object):
             box.configure(inactiveselectbackground=C["sel_bg"])
         except tk.TclError:
             pass
+        try:
+            # sel 태그 색을 명시해 오류 배경 위에서도 대비 확보
+            box.tag_configure(
+                "sel", background=C["sel_bg"], foreground=C["sel_fg"]
+            )
+        except tk.TclError:
+            pass
 
         scroll = SlimScrollbar(
             inner,
@@ -425,8 +433,10 @@ class App(object):
                 if not content.strip():
                     continue
                 box.tag_add("rowline", start, end)
+            # sel 이 오류 태그보다 위에 있어야 드래그 선택이 보임
             try:
-                box.tag_raise("err")
+                box.tag_lower("err")
+                box.tag_raise("sel")
             except Exception:
                 pass
         except Exception:
@@ -543,13 +553,19 @@ class App(object):
             padx=(0, 6),
             title_is_var=True,
             box_width=34,
+            with_err_title=True,
         )
         self.code_box.tag_configure(
             "err", background=C["err_bg"], foreground=C["err_fg"]
         )
-        self.code_box.tag_configure(
-            "err_sel", background=C["sel_bg"], foreground=C["sel_fg"]
-        )
+        try:
+            self.code_box.tag_configure(
+                "sel", background=C["sel_bg"], foreground=C["sel_fg"]
+            )
+            self.code_box.tag_lower("err")
+            self.code_box.tag_raise("sel")
+        except Exception:
+            pass
 
         self.result_box = self._make_col(
             paste_wrap,
@@ -573,6 +589,7 @@ class App(object):
         bg=None,
         title_is_var=False,
         box_width=28,
+        with_err_title=False,
     ):
         card, body = self._surface(parent, padx=12, pady=10)
         card.grid(row=0, column=col, sticky="nsew", padx=padx)
@@ -582,10 +599,11 @@ class App(object):
             PressButton(
                 hdr, text=btn_text, command=btn_cmd, padx=10, pady=3
             ).pack(side="right")
-        # 왼쪽 정렬 (fill/expand 시 Label 기본 center 방지)
+        title_wrap = tk.Frame(hdr, bg=C["surface"])
+        title_wrap.pack(side="left", anchor="w")
         if title_is_var:
             tk.Label(
-                hdr,
+                title_wrap,
                 textvariable=title,
                 bg=C["surface"],
                 fg=C["text"],
@@ -595,7 +613,7 @@ class App(object):
             ).pack(side="left", anchor="w")
         else:
             tk.Label(
-                hdr,
+                title_wrap,
                 text=title,
                 bg=C["surface"],
                 fg=C["text"],
@@ -603,6 +621,17 @@ class App(object):
                 anchor="w",
                 justify="left",
             ).pack(side="left", anchor="w")
+        if with_err_title:
+            self.code_err_label = tk.Label(
+                title_wrap,
+                text=u"",
+                bg=C["surface"],
+                fg=C["title_err"],
+                font=FONT_B,
+                anchor="w",
+                justify="left",
+            )
+            self.code_err_label.pack(side="left", anchor="w")
         box = self._text_box(body, bg=bg, width=box_width)
         return box
 
@@ -632,6 +661,8 @@ class App(object):
         self.code_box.tag_remove("err", "1.0", "end")
         self.code_box.delete("1.0", "end")
         self.code_title_var.set(u"SAP 자재코드")
+        if getattr(self, "code_err_label", None) is not None:
+            self.code_err_label.configure(text=u"")
         self._apply_row_lines(self.code_box)
         self._set_status(u"")
 
@@ -675,11 +706,17 @@ class App(object):
             else:
                 displays.append(code)
 
+        self.code_title_var.set(u"SAP 자재코드")
         if err_count > 0:
-            self.code_title_var.set(u"SAP 자재코드  ·  오류 {0}개".format(err_count))
-            self._set_status(u"오류 {0}개".format(err_count), u"err")
+            if getattr(self, "code_err_label", None) is not None:
+                self.code_err_label.configure(
+                    text=u"  ·  오류 {0}개".format(err_count),
+                    fg=C["title_err"],
+                )
+            self._set_status(u"")
         else:
-            self.code_title_var.set(u"SAP 자재코드")
+            if getattr(self, "code_err_label", None) is not None:
+                self.code_err_label.configure(text=u"")
             matched = int(stats.get("matched") or 0)
             self._set_status(u"완료  ·  {0}건".format(matched), u"ok")
 
@@ -696,9 +733,25 @@ class App(object):
         self._apply_row_lines(self.code_box)
         self._apply_row_lines(self.result_box)
         try:
-            self.code_box.tag_raise("err")
+            self.code_box.tag_lower("err")
+            self.code_box.tag_raise("sel")
         except Exception:
             pass
+
+    def _open_excel_path(self, path):
+        """오류 수정용으로 경로의 엑셀 파일을 연다."""
+        path = (path or "").strip()
+        if not path or not os.path.isfile(path):
+            return
+        try:
+            os.startfile(path)
+        except Exception:
+            try:
+                import subprocess
+
+                subprocess.Popen(["cmd", "/c", "start", "", path], shell=False)
+            except Exception:
+                pass
 
     def browse_excel(self):
         path = filedialog.askopenfilename(
@@ -796,7 +849,7 @@ class App(object):
             logger.finish(u"추출 완료")
             if stats:
                 self.root.after(0, lambda: self._show_results(stats))
-                self.root.after(0, lambda: self._finish_dialog(stats))
+                self.root.after(0, lambda s=stats, p=path: self._finish_dialog(s, p))
         except Exception as e:
             logger.exception(u"추출")
             self.root.after(
@@ -806,13 +859,18 @@ class App(object):
         finally:
             self.root.after(0, lambda: self._set_running(False))
 
-    def _finish_dialog(self, stats):
+    def _finish_dialog(self, stats, excel_path=None):
         count = int(stats.get("missing_count") or 0)
-        if count > 0:
+        has_errors = bool(stats.get("has_errors")) or count > 0
+        if has_errors:
             messagebox.showerror(
                 u"오류",
-                u"SAP 자재코드 오류 : {0}개".format(count),
+                u"SAP 자재코드 오류 : {0}개\n경로의 엑셀 파일을 열어 수정하세요.".format(
+                    count
+                ),
             )
+            self._open_excel_path(excel_path or self.excel_var.get())
+            return
 
     def run(self):
         self.root.mainloop()
