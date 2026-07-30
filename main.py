@@ -154,13 +154,23 @@ class App(object):
             spacing2=0,
             spacing3=2,
         )
-        # 줄 구분: 아주 얇은 밑줄 (은근한 실선)
+        # 줄 구분: 선명한 얇은 실선
         try:
-            box.tag_configure("rowline", underline=True, underlinefg="#D8DCE3")
+            box.tag_configure("rowline", underline=True, underlinefg="#64748B")
         except tk.TclError:
             box.tag_configure("rowline", underline=True)
         box.bind("<<Modified>>", lambda e, b=box: self._on_box_modified(b))
+        box.bind("<Control-a>", lambda e, b=box: self._select_content(b))
+        box.bind("<Control-A>", lambda e, b=box: self._select_content(b))
         return box
+
+    def _select_content(self, box):
+        """맨 아래 빈 줄 없이 내용만 전체 선택."""
+        text = box.get("1.0", "end-1c").rstrip("\r\n")
+        box.tag_remove("sel", "1.0", "end")
+        if text:
+            box.tag_add("sel", "1.0", "1.0+{0}c".format(len(text)))
+        return "break"
 
     def _on_box_modified(self, box):
         try:
@@ -172,18 +182,17 @@ class App(object):
             pass
 
     def _apply_row_lines(self, box):
-        """각 줄 아래 얇은 구분선 태그 적용."""
+        """각 줄 아래 얇은 구분선 태그 적용 (빈 줄 제외)."""
         try:
             box.tag_remove("rowline", "1.0", "end")
             last = int(float(box.index("end-1c").split(".")[0]))
             for line in range(1, last + 1):
                 start = "{0}.0".format(line)
                 end = "{0}.end".format(line)
-                # 빈 줄도 살짝 구분감 있도록 한 칸 padding
-                if box.compare(start, "==", end):
+                content = box.get(start, end)
+                if not content.strip():
                     continue
                 box.tag_add("rowline", start, end)
-            # err 음영이 있으면 rowline 위에 유지
             try:
                 box.tag_raise("err")
             except Exception:
@@ -233,7 +242,7 @@ class App(object):
         ).pack(side="left", padx=(6, 0))
         name_row = tk.Frame(um, bg=C["surface"])
         name_row.pack(fill="x")
-        ttk.Label(name_row, text=u"파일", style="Card.TLabel", width=5).pack(
+        ttk.Label(name_row, text=u"파일명", style="Card.TLabel", width=6).pack(
             side="left"
         )
         self.unmatched_name_var = tk.StringVar(value=today_unmatched_filename())
@@ -296,11 +305,15 @@ class App(object):
         self._apply_row_lines(self.code_box)
 
     def select_result(self):
-        self.result_box.tag_add("sel", "1.0", "end")
+        text = self.result_box.get("1.0", "end-1c").rstrip("\r\n")
+        self.result_box.tag_remove("sel", "1.0", "end")
+        if text:
+            # 내용만 선택 (맨 아래 빈 줄 제외)
+            self.result_box.tag_add("sel", "1.0", "1.0+{0}c".format(len(text)))
         self.result_box.focus_set()
         try:
             self.root.clipboard_clear()
-            self.root.clipboard_append(self.result_box.get("1.0", "end-1c"))
+            self.root.clipboard_append(text)
         except Exception:
             pass
 
@@ -310,14 +323,26 @@ class App(object):
         self.code_box.delete("1.0", "end")
         self.result_box.delete("1.0", "end")
 
-        for r in rows:
-            line_start = self.code_box.index("end-1c")
+        codes = []
+        qtys = []
+        err_idx = []
+        for i, r in enumerate(rows):
             code = r.get("code") or u""
-            self.code_box.insert("end", code + "\n")
-            self.result_box.insert("end", r.get("result_qty_text", u"") + "\n")
+            codes.append(code)
+            qtys.append(r.get("result_qty_text", u""))
             if code and not r.get("ok"):
-                line_end = self.code_box.index("end-1c")
-                self.code_box.tag_add("err", line_start, line_end)
+                err_idx.append(i)
+
+        # 마지막 줄에 개행을 넣지 않아 빈 칸이 생기지 않음
+        if codes:
+            self.code_box.insert("1.0", u"\n".join(codes))
+        if qtys:
+            self.result_box.insert("1.0", u"\n".join(qtys))
+
+        for i in err_idx:
+            start = "{0}.0".format(i + 1)
+            end = "{0}.end".format(i + 1)
+            self.code_box.tag_add("err", start, end)
 
         self._apply_row_lines(self.code_box)
         self._apply_row_lines(self.result_box)
